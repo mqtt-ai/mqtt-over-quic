@@ -1,0 +1,836 @@
+#+title: Spec Mqtt Next
+
+* Abstract
+
+This document defines MQTT-next, a mapping of MQTT to the QUIC transport protocol.
+
+* Definitions
+
+The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14 RFC2119 RFC8174 when, and only when, they appear in all capitals, as shown here.
+
+connection: A transport-layer connection between two endpoints using QUIC as the transport protocol, defined in RFC9000
+
+stream: QUIC stream defined in RFC9000
+
+session: MQTT session defined in MQTT spec
+
+bidi: stream direction, bidirectional
+
+unidi: stream direction, unidirectional
+
+local stream: stream which is initiated locally
+
+remote stream: stream which is initiated by remote endpoint.
+
+flow: stream abstraction in MQTT layer, part of MQTT session.
+
+flow owner: the endpoint who initiates the stream thus owns it.
+
+client flow: flow initiated by the client and client owns it.
+
+server flow: flow initiated by the server and server owns it.
+
+datagram: QUIC unreliable datagram
+
+sender: endpoint which can send data over a flow
+
+receiver: endpoint which can receive data over a flow
+
+MQTT packet(s): MQTT control packets defined in MQTT protocol.
+
+HOLB: head-of-line blocking
+
+endpoint: MQTT client or MQTT broker
+
+peer: remote endpoint
+
+mqtt-next: unversioned MQTT version that supports MQTT over QUIC advance multistream mode.
+
+ttl: time to live
+
+* Notational Conventions
+
+Conforms to 1.3 of the notational conventions of RFC 9000
+
+
+* Motivation
+
+QUIC is the transport layer of HTTP/3, standardised by the IETF.
+
+MQTT-next could take advantage of the features provided by the QUIC protocols and become a more flexible PUB/SUB protocol in order to
+to meet the demands of modern mobile networks and modern applications.
+
+** Performance Improvment
+
+QUIC only needs one round trip to complete the connection. The MQTT clients living in long latency networks could benefit from this.
+
+QUIC could 'resume' the connection with 0-RTT after a disconnection and early data could be sent from the client without waiting for the server to respond.
+
+** Robust to network changes
+
+QUIC is robust to network changes, using a feature called network address migration that could help MQTT clients stay connected and reduce the chance of going offline.
+
+** Multiplexing enables flexible asynchronous parallel streaming.
+
+- Flow control and prioritisation of application data.
+
+- Coexistence with other public/private protocols such as http/3.
+
+- Packet send/recv cancellation.
+
+  Large payload message in transmission could be cancelled by either receiver or sender.
+
+- Make MQTT more resilient to application errors.
+
+- Mitigate HOLB
+
+** Offers ordered/unordered, reliable/unreliable packet transmission
+
+
+** Embedded security
+
+QUIC uses the TLS suite by default to ensure security and has further enhanced security.
+
+** Pluggable security suite and congestion control
+
+Always ready for future updates without requiring major changes to the network.
+
+Congestion control can be tailored to the needs of the application.
+
+
+
+* New features in MQTT-next
+
+- Fast security handshake with 1 RTT and 0 RTT
+
+  Secure connection handshake could be done in 0 or 1 roundtrip time.
+
+- Connection could survive network changes.
+
+  QUIC's address migration makes MQTT more robust to network changes, reducing the chance of disconnection.
+
+- Elimination of HOL blocking.
+
+  In TCP-based transport, the MQTT packet at the head of the line blocks all subsequent messages.
+  after it, so blocking the MQTT PINGREQ used to keep the connection alive.
+  which keeps the connection alive.
+
+  With QUIC, QUIC knows the importance of each message and sends them in separate channels that won't block each other.
+
+- Separate control and data traffic.
+
+  With TCP-based transport, a PUB message with a large payload can block the entire TCP stream and could
+  PINGREQ is queued. With QUIC, the PUB message and the PINGREQ are sent in
+  are sent in different streams. PINGREQ, which is used for keep-alive or liveness detection at the MQTT layer, must be sent on a higher priority control flow.
+  on a higher priority control flow.
+
+- Classified application data
+
+  QUIC multi-streams allows the application to send different application data on different streams.
+
+  For example
+
+  1. assign different topic data to different streams
+
+  2. Separate traffic for different QoS messages.
+
+  3. Separate traffic for publishing and subscriptions.
+
+- Flow control on classified traffic
+
+  QUIC enables flow control both at the MQTT connection level and at the per-stream level.
+
+  This allows application data relays on different QUIC streams to be flow controlled independently.
+
+- Prioritised traffic
+
+  QUIC enables MQTT to prioritise traffic from different streams.
+
+  This affects loss recovery behaviour and network congestion.
+
+- Enhanced security
+
+- Coexistence with other applications on the same connection such as HTTP/3
+
+  QUIC Multiplexing allows the MQTT protocol to coexist with other public/private protocols on the same connection.
+  connection.
+
+- MQTT packet(s) transmission could be cancelled.
+
+  QUIC makes it possible to abort a MQTT packet on both the sender and receiver side without affecting the connectivity.
+
+  For cases like
+
+  - Cancel the transmission of a large payload packet.
+  - Cancel the transmission of obsolete packets.
+
+  For TCP based traffic, cancelling a pending MQTT packet means disconnecting and reconnecting.
+
+- Support both reliable and unreliable delivery.
+
+  RFC9221 extended the QUIC protocol to support unreliable delivery.
+
+  This could make MQTT QoS 0 packets truly "fire and forget" with almost no cost for retransmission.
+
+  In the TCP-based protocol, the TCP segment containing the bytes of the QoS 0 packet is retransmitted by the TCP stack in order.
+
+- Build-in transport layer keepalive
+
+  In MQTT-next, both client and server could use the keep alive mechanism of QUIC transport, which is end-to-end.
+
+  This simplifies the implementation at the MQTT client and server in terms of timing.
+
+  And it is end to end, meaning that the keep alive message must be delivered to the peer without worrying about being terminated.
+  through a middleman such as a proxy, NAT gateway or LB.
+
+- Flow control and prioritisation support
+
+   Multiplexing feature of QUIC enables QUIC as a transport aware of different application data over different streams it carries.
+
+- Failure isolation.
+
+  The client and the broker can agree how to handle a failure per flow. To minimise the side effect of the failure.
+
+  A single messaging failure such as a malformed packet MUST cause the flow to be aborted, but it MAY or MAY NOT cause the connection to be closed.
+
+ - Variable header compression
+
+  MQTT packets are binary coded packets, it is designed for smaller packet size. In order to reduce packet size without losing information,
+  topic alias could be used to avoid retransmitting whole long topic in each packet. But that is not all for the other headers, such as the Content Type header.
+
+  HTTP/3 Q-PACK enables header compression/encoding, which the MQTT protocol could use to reduce packet size by compressing other variable headers or user-defined properties.
+  variable headers or user-defined properties.
+
+
+* Overview of changes to the MQTT protocol
+
+0. MQTT packets are transported via flow or datagrams.
+1. The subscription is now associated with the flow.
+2. Acking QoS > 0 messages is also done on the same flow that it is published.
+3. Publish QoS 0 message MAY have Packet ID field.
+4. New per flow state in session state for QoS messages.
+5. MQTT packet flow control is now per flow.
+6. Server can 'push' message to server flow, which server initiates the flow.
+7. PINGREQ/PINGRESP are associated with flow.
+
+
+* Operating Modes
+
+A QUIC connection is REQUIRED between the client and the server as defined in RFC 9000.
+
+The MQTT packets are transported over the flows, which are the QUIC streams.
+
+A QUIC stream provides reliable in-order delivery of bytes, but makes no
+guarantees about the order of delivery of bytes on other
+streams.
+
+QUIC streams can be either unidirectional, carrying data only from the
+initiator to receiver, or bidirectional, carrying data in both directions.
+directions.  Streams in the connection can be initiated by either endpoint,
+the client or the server.
+
+There are three modes of operation for QUIC-next, each mode having its own advantages and disadvantages in terms of
+
+- Compatibility with MQTT protocols
+
+- Supported features
+
+
+** Single Stream
+
+The simplist mode simply replaces the TCP based transport with a QUIC stream in the QUIC connection.
+
+A BIDI stream is initiated from the client after the connection handshake and is used to carry all MQTT
+to carry all MQTT control packets. It is compatible with MQTT 3.1 and MQTT 5.0 and nothing in the MQTT packet is
+changed in the MQTT packet.
+
+Pros: Easy to implement, NO changes in MQTT layer. Benefits from QUIC connection.
+
+Cons: For complex applications that have multiple topics and/or different QoS,
+      Does not take full advantage of QUIC transport features.
+
+** Simple multistreams
+
+Enhanced single stream mode with support for multistreams, i.e. one control stream and one or more data streams.
+
+Application data and QUIC stream mapping is controlled by the client.
+
+Compatible with single stream mode.
+
+      Advantages:
+
+      a. Support for multiple streams.
+      b. Mitigate HOLB application side.
+      c. Enable parallel processing at both endpoints.
+      d. Sender defines priority.
+      e. Freedom in application data and stream mapping
+
+      Disadvantages:
+      a. Persistent stream session is not available on data stream.
+
+** Advanced multistreams
+
+Extends the simple multistream mode with the following features:
+
+1. Can coexist with another protocol (http/3 or private protocol) on the same connection.
+2. Support unreliable delivery.
+3. Defines control message cancellation procedure.
+4. Server initiated stream for implicit subscriptions.
+5. Abstract 'flow' concept that could be resumed after reconnect.
+6. Q-PACK support for message header compression, greatly reducing message size.
+7. Defines robustness flow procedure.
+8. Defines protocol discovery and upgrade/downgrade procedure.
+
+Advantages:
+
+- MQTT 5.0 feature complete
+- Flexible packet delivery reliable/unreliable, ordered, out-of-order, send/recv aborts.
+- Flexible control stream discovery
+- Flexible connection management.
+
+Disadvantages:
+
+- Extends MQTT 5.0 session data, requires changes to MQTT session layer
+- Fallback to TCP/TLS becomes a completely different protocol.
+
+** Work mode feature summary
+
+|------------------------------+---------------+--------------------+----------------------+-------|
+| Mode                         | Single Stream | Simple Multstreams | Advanced Multstreams | notes |
+|------------------------------+---------------+--------------------+----------------------+-------|
+| MQTT 3.1                     | Y             | Y                  | N                    |       |
+| MQTT 5.0                     | Y             | Y (Partly)         | N                    |       |
+| MQTT-next                    | N             | N                  | Y                    |       |
+| TLS alpn                     | mqtt          | mqtt               | mqtt-next            |       |
+|------------------------------+---------------+--------------------+----------------------+-------|
+| Connection features          |               |                    |                      |       |
+|------------------------------+---------------+--------------------+----------------------+-------|
+| Transport Keepalive          | Y             | Y                  | Y                    |       |
+| 1 RTT / 0 RTT                | Y             | Y                  | Y                    |       |
+| Address migration            | Y             | Y                  | Y                    |       |
+| Unreliable Delivery          | N             | N                  | Y                    |       |
+| Co-exist with other protocol | N             | N                  | Y                    |       |
+|------------------------------+---------------+--------------------+----------------------+-------|
+| Streams                      |               |                    |                      |       |
+|------------------------------+---------------+--------------------+----------------------+-------|
+| Number of Streams (Note 1.)  | 1             | 1..n (Note 2.)     | 1..n                 |       |
+| Number of Control Streams    | 1             | 1                  | 1                    |       |
+| Number of Data Streams       | 0             | 0..n (Note 2.)     | 0..n                 |       |
+| Broker initiated Stream      | N             | N                  | Y                    |       |
+| Stream flow control          | N             | Y                  | Y                    |       |
+| Stream prioritizion          | N             | Y (Note 3.)        | Y                    |       |
+| Unidirectional stream        | N             | N                  | Y                    | TBD   |
+|------------------------------+---------------+--------------------+----------------------+-------|
+| Persistent sessions          | Y             | P (Note 4.)        | Y                    |       |
+| Mitigate HOLB                | N             | Y                  | Y                    |       |
+| Send/Recv abortion           | N             | Y                  | Y                    |       |
+| Trackable Flows              | N             | N                  | Y                    |       |
+|------------------------------+---------------+--------------------+----------------------+-------|
+
+Notes:
+
+1. Number of concurrent streams
+
+2. `n` defined by broker, suggested maximum 64k
+
+3. Client set prioritizion.
+
+4. On control stream only
+
+
+* Connections
+
+** Establishing a connection
+
+QUIC connections are established as described in [RFC9000].
+
+0-RTT support is optional
+
+** Connection Keepalive
+
+Connection keepalive is performed on the QUIC transport. Both server and client maintain keepalive traffic on their own.
+
+However, MQTT keepalive could still be used over QUIC, but note that if QUIC connection keepalive is set,
+must be greater than the MQTT keepalive value.
+
+** Connection termination
+
+*** Graceful shutdown
+
+Graceful shutdown only requires graceful shutdown of the control flow, other types of flows could be shut down gracefully or aborted. see flow shutdown section.
+
+Connection graceful shutdown could be used for
+
+Broker:
+1. redirect the client to the new server
+2. prevent MQTT.WILL message being sent.
+
+Client:
+1. clear session states
+2. set a new session expiration time.
+
+There is no graceful shutdown defined by the QUIC protocol.
+
+In mqtt-next, if either endpoint wishes to gracefully disconnect, it MUST send MQTT.DISCONNECT via the control stream,
+
+it MUST send MQTT.DISCONNECT over the control stream with a reason code explicitly set in the Disconnect Reason Code.
+Then it MUST terminate the control flow.
+
+Any MQTT packets received before the control stream is closed SHOULD be properly handled.
+
+After closing the control stream, an endpoint MUST shutdown the connection explicitly (informing the peer) or silently (without informing the peer).
+
+MQTT defines graceful shutdown with the stream shutdown reason code: NO_ERROR.
+
+If MQTT coexists with http/3, the http3/ graceful shutdown procedure must also be followed.
+
+***** Graceful shutdown initiated by the client:
+
+Client MUST first send MQTT.DISCONNECT over control flow
+    AND then MUST wait for control flow graceful shutdown to complete
+    AND then Client MAY SHUTDOWN the connection by starting the connection Immediate shutdown of the QUIC protocol
+             OR the client MAY terminate the connection locally without notifying the peer.
+
+Client MUST discard all MQTT packets received from the Broker after sending the MQTT.DISCONNECT.
+
+If the client receives a QUIC CONNECTION_SHUTDOWN FRAME before completing the control flow graceful shutdown procedure
+then the graceful shutdown procedure will fail.
+
+Client MAY timeout waiting for a control flow graceful shutdown to complete, it MAY start an immediate connection shutdown procedure with code ERROR_DISCONNECT_TIMEOUT. Connection graceful shutdown has failed.
+
+If the server receives MQTT.DISCONNECT via control flow,
+it MAY attempt to gracefully shut down other flows by processing all received MQTT packets
+     AND if MQTT coexists with other protocols, it MUST wait for the other protocol to gracefully shutdown.
+     AND server MUST initiate control flow graceful shutdown.
+     AND server SHALL not send MQTT messages on any flows.
+     AND server MAY initiate the QUIC protocol's immediate disconnect procedure OR silently disconnect locally without notifying the peer.
+
+***** Graceful shutdown triggered by the server:
+
+Server MUST first send MQTT.DISCONNECT via control flow
+   AND then MUST wait for the control flow graceful shutdown to complete
+   AND server MAY initiate the QUIC protocol's immediate connection termination procedure OR silently terminate the connection locally without notifying the peer.
+
+
+*** Abnormal connection shutdown
+
+Abnormal connecion shutdown is the shutdown of a connection that is not graceful.
+
+Abnormal connecion shutdown does not require peers to cooperate.
+
+The following conditions can trigger abnormal connection shutdown.
+
+- Aborted control flow shutdown
+
+- Immediate connection shutdown triggered locally by the application.
+
+- Immediate shutdown triggered remotely without completing the control flow Graceful shutdown
+
+- Idle connection.
+
+- Other unrecoverable transport errors such as device failure, OS failure, unhandled network changes.
+
+
+*** Sending unreliable datagrams over the connection
+
+The QUIC extension RFC 9221 adds support for sending and receiving unreliable datagrams over QUIC.
+
+Support or not support of unreliable datagram is negotiated during connection handshake as defined in RFC [@TODO].
+
+MQTT packet can be encoded in the payload of unreliable datagram.
+
+Unreliable means:
+
+1. Out-of-order delivery of datagram frames.
+
+2. Datagram frame could be lost without recovery.
+
+3. Sending could fail due to size limitation (MTU).
+
+All QoS >= 0 messages could be sent with unreliable datagram.
+
+The unreliable datagram is ACK-eliciting, the application MAY know if the datagram is received or lost.
+received, lost or possibly lost, and the application may choose to explicitly resend the
+QUIC packet with/without DUP flag based on QoS levels.
+
+Sending unreliable datagram may fail due to reasons, application may try to switch to other communication channels such as using a flow.
+
+Reasons for failure to send unreliable datagram
+
+1. not supported by peer
+2. flow control
+3. limited by MTU size
+
+The application is free to choose how to encode the message in the datagram.
+
+mqtt-next defines three types of datagram payloads
+
+1. Non-MQTT control packet datagram
+
+   First byte must be 0x00 to distinguish from MQTT packet
+
+2. MQTT control packets
+
+3. Zero length datagram
+
+   The use of zero length datagram should be allowed.
+
+   The application could handle or ignore the UD with payload of 0 length.
+
+   The function of the zero length datagram is implementation specific.
+
+*** Connection downgrade
+
+If the QUIC handshake fails or timed out, the client MUST downgrade the protocol to reconnect to the TCP/TLS endpoint.
+
+The client MUST NOT downgrade from QUIC to plain-text TCP.
+
+*** Discovering and upgrading
+
+The client could learn that the server supports MQTT-next via ALPN during the TCP/TLS handshake, so the upgrade is possible.
+via QUIC connection to the same endpoint and port before the client sends the MQTT.connect control message over TCP/TLS.
+
+If the client has sent the MQTT.connect packet to the server via both TCP-based transport and QUIC transport, session takeover can be triggered.
+
+
+* MQTT Flows
+
+MQTT Flow provides reliable, ordered unidi/bidi transport for MQTT packets.
+
+There may be one or more flows in a connection between two endpoints.
+
+The flow header identifies the type of flow.
+
+The term =flow= is used to distinguish the term =stream= in the QUIC protocol.
+
+Flows are the abstraction of concurrent logical streams in a multistream advanced mode connection.
+
+Application operates flows:
+
+- start the flow
+- close the flow gracefully or abort it
+- refresh the flow: replace the stream of the flow with a new stream.
+- Limit the number of streams.
+
+Flow could be reused/restarted or resumed.
+
+The maximum number of flows is limited by the connection flow control per implementation.
+
+** Flow and stream mapping
+
+  A flow can use one QUIC bidi stream.
+
+  A flow can use one QUIC unidi stream or [TBD] a pair of QUIC unidi streams.
+
+  Application messages are sent across the flow in an orderly and reliable manner.
+
+** Flow ownership
+
+The flow is owned by the endpoint which starts it.
+
+** Flow ID
+
+Each flow has a =FlowID=, the FlowID is picked by initiator.
+
+The FlowID is unique within the MQTT session.
+
+FlowID is a Variable-Length Integer.
+
+The least significant bit of the FlowID identifies if it is a server flow to avoid FlowID collision between client and server.
+
+** Flow Type
+
+In order for MQTT to coexist with other protocols on the same QUIC connection,
+MQTT-next uses defined (IANA) flow types to distinguish from the other protocols.
+
+** Flow Header
+
+The flow header is the first few bytes used by both endpoints to identify the flow and gather information for using the flow.
+
+NOTE, the 'Variable-Length Integer Encoding' (i) in the flow header is defined in RFC 9000 and not the "Variable Byte Integer" in the MQTT specification.
+
+
+Stream Header Formats:
+
+*** Control Flow Stream header
+#+begin_src
+control_flow_header {
+  Flow_type(i) = 0x11,
+  Flow_id(i): 0x00,
+  Flow_persistent_flag(8),
+}
+#+end_src
+
+*** Client Data Flow Stream header
+#+begin_src
+client_data_flow_header {
+  Flow_type(i) = 0x12,
+  Flow_id(i),
+  Flow_flags(8),
+  [Flow_expire_interval(i)],
+  [Flow_optional_headers]
+}
+#+end_src
+
+*** Server Data Flow Stream header
+#+begin_src
+server_data_flow_header {
+  Flow_type(i) = 0x12,
+  Flow_id(i),
+  Flow_flags(8),
+  [Flow_optional_headers]
+}
+#+end_src
+
+*** User defined Flow Stream header
+#+begin_src
+user_data_flow_header {
+  Flow_type(i) = 0x13,
+  Flow_id(i),
+}
+#+end_src
+
+** Flow Flags
+
+#+begin_src
+
+flow_flags {
+  clean(1),
+  abort_if_no_state(1),
+  err_tolerance(2),
+  persistent_qos(1),
+  persistent_topic_alias(1),
+  persistent_subscriptions(1),
+  optional_headers(1),
+}
+#+end_src
+
+clean:
+  if it is a clean start of the flow, both endpoint MUST drop the states.
+
+abort_if_no_state:
+  If set and flow state is gone for any reason, peer MUST abort this flow with RC: ERROR_NO_FLOW_STATE
+  It is protocol error level 1 if both this flag and clean flag are set.
+  Local node could restart the flow with clean set to true afterwards.
+
+persistent_qos:
+  if set, both endpoints must persistent QoS states.
+
+persistent_topic_alias:
+  if set, both endpoints must persistent topic alias
+  if unset, both endpoints must not persistent topic alias that topic alias mapping does not survives from a flow close.
+
+persistent_subscriptions(1):
+  if set, both endpoints must persistent topic id.
+  It is protocol error level 1 if this flag is set in server flow
+
+optional_headers(1):
+  if set, optional_headers are set
+
+
+** Flow start
+
+Both client and server can initiate new flows.
+
+The flow will survive disconnection or reconnection if the session and the flow are not out of date.
+
+Mismatch of initiator and flow type in control flow is protocol error level 0.
+
+Mismatch initiator and flow type in data flow is protocol error level 1.
+
+** Flow Termination (Close)
+
+The flow termination could be triggered by either endpoint gracefully (clean) or aborting.
+
+If graceful shutdown is triggered, it MAY end with abortive shutdown.
+
+If abort is triggered, it MUST terminate with abortive shutdown.
+
+Flow state MUST be removed from session state if gracefully terminated.
+
+Flow state MUST NOT be removed from session state if it is aborted if the flow hasn't expired.
+
+In the case of aborted termination, the sender MUST assume that the messages it has sent will be unhandled or handled, and for the receiver it is up to the implementation to decide how to deal with the received but unhandled data.
+
+
+*** Flow graceful termination.
+
+The flow owner must trigger the graceful shutdown of the flow by sending a QUIC STREAM FRAME with FIN flag.
+
+The flow owner must finish sending a complete MQTT packet before starting the graceful shutdown procedure.
+
+It is protocol error level 0 if the graceful shutdown of the flow is not initiated by the flow owner.
+
+It is protocol error level 1 for data flow and protocol error level 0 for control flow if the sender terminates the flow with an incomplete MQTT packet.
+
+The recipient MUST reset the flow with APEC: ERROR_IMCOMPLETE_PACKET.
+
+The graceful flow shutdown is completed when the other endpoint also terminates the stream by sending a QUIC STREAM FRAME with FIN flag set.
+
+The receiver MUST ensure that all received messages are processed before terminating the stream.
+
+
+*** Flow abortive termination.
+
+If the flow isn't terminated gracefully, it is abortive termination.
+
+Abortive termination is triggered when at least one of the following events occurs
+
+1. The sender aborts the transmission by sending a QUIC RESET_STREAM_FRAME.
+2. Receiver aborts receive by sending a QUIC STOP_SENDING frame.
+3. The sender receives the QUIC STOP_SENDING FRAME from the receiver.
+4. Receiver receives QUIC RESET_STREAM FRAME from sender.
+5. The connection is closed before the stream is properly terminated.
+
+Note that for a bidi stream, the endpoint is both the sender and the receiver.
+
+
+** Refresh flow stream
+
+Flow stream refresh can only be triggered by the flow owner.
+
+This is used to interrupt the data transfer in progress by the application.
+
+For example, to discard the obsolete data being transferred, to update the persistent policy defined by setting new flow flags, or to recover from the application error, or to discard the flow state at the peer.
+
+Flow takeover is done by refreshing the QUIC stream in use, where the new stream ID MUST be greater than the old stream ID. Greater streamid of the same QUIC stream type always takes precedence.
+
+The flow refresh has the side effect that the owner aborts both sending and receiving of the old flow.
+and the peer MUST unconditionally abort its send/recv.
+
+The incomplete MQTT packet in the buffer at both ends MUST be discarded.
+
+The stream owner must ensure that it has sufficient flow control credits before starting the takeover process.
+
+As each endpoint manages it's own flow id spaces, the takeover could change the persistent flag of the flow.
+(Note that it is a protocol error level 1 to update the flow that it does not own).
+
+** Flow Recover
+
+Flow recover means that a previously aborted flow identified by flowid is reopened.
+
+Flow recover happens in two cases:
+
+1. restarting an aborted flow
+
+2. Restart of a flow to which a connection has been re-established.
+
+The owner of the flow is responsible for restarting the flow.
+
+** Drop the Flow
+
+If the flow owner wishes to discard the flow state at the peer, he can do so by setting the flow
+with the flow flag clean_start set, all persistent flags unset and a STREAM FIN flag set.
+
+This could be done by restarting a closed flow or by refreshing the stream on an existing flow.
+
+
+** MQTT Packet and Flow mappings
+
+|-------------+--------------+------------------+------------------+---------------------|
+| MQTT Packet | Control flow | Client Data flow | Server Data Flow | Unreliable Datagram |
+|-------------+--------------+------------------+------------------+---------------------|
+| CONNECT     | YES          | NO               | NO               | NO                  |
+| CONNACK     | YES          | NO               | NO               | NO                  |
+| PUBLISH     | YES          | YES              | YES              | YES                 |
+| PUBACK      | YES          | YES              | YES              | YES                 |
+| PUBREC      | YES          | YES              | YES              | YES                 |
+| PUBCOMP     | YES          | YES              | YES              | YES                 |
+| PUBREL      | YES          | YES              | YES              | YES                 |
+| SUBSCRIBE   | YES          | YES              | NO               | YES                 |
+| SUBACK      | YES          | YES              | NO               | YES                 |
+| UNSUBSCRIBE | YES          | YES              | NO               | YES                 |
+| UNSUBACK    | YES          | YES              | NO               | YES                 |
+| PINGREQ     | YES          | YES              | YES              | NO                  |
+| PINGRESP    | YES          | YES              | YES              | NO                  |
+| DISCONNECT  | YES          | NO               | NO               | NO                  |
+| AUTH        | YES          | NO               | NO               | NO                  |
+|-------------+--------------+------------------+------------------+---------------------|
+
+
+** Table of Flow Types
+
+|--------------------------------+------------+---------------+-------------------------------+---|
+| MQTT Types (id.)               | dir        | initiate by   | Transport data                |   |
+|--------------------------------+------------+---------------+-------------------------------+---|
+| Control flow            (0x11) | bidi       | Client        | MQTT control packet           |   |
+| Client flow             (0x12) | bidi/unidi | Client        | MQTT data packet              |   |
+| Server flow             (0x13) | bidi/unidi | Server        | Server assigned subscriptions |   |
+| User-Defined flow       (0x14) | bidi/unidi | Client/Server | Other protocol data           |   |
+|--------------------------------+------------+---------------+-------------------------------+---|
+
+
+Note, type `0x1f * N + 0x21` are reserved
+Note, control packet and data packet are redefined here
+
+Flow could only be recoverd by the same initiator.
+
+
+** Flow State
+
+The flow state is associated with the FlowId, the flow state persists from connection and stream close.
+
+The flow state is used to persist the send state of the flow, which includes
+
+- Flow type (ownership and usage)
+- Subscription
+- topic alias
+- Delivery state of QoS > 0 messages sent.
+
+Each endpoint of a flow maintains its own flow state as a minimum persistence:
+
+*** Client side
+
+- Delivery state of QoS >0 messages sent.
+- topic alias
+
+*** Server side
+
+- Subscriptions and subscription ID
+- Topic alias
+- Delivery state of QoS >0 messages.
+- buffered QoS >0 messages, QoS 0 optional.
+- Flow Expiry Time
+
+* Session
+
+** Session State
+
+The existence of the session.
+
+Session State is associated with MQTT Client ID.
+
+Session State contains the zero or many flow states.
+
+Session state contains session expire interval.
+
+Session State must be discarded when the connection is closed AND the session expire interval has passed.
+
+If the session state is discarded, the flow states in the session are also discarded.
+
+
+* Protocol Error Levels
+
+** Level 0
+
+Connection must be shutdown.
+
+** Level 1
+
+Flow must be aborted but connection MAY be kept.
+
+* Error Code
+
+** Application Error Code on Connection
+
+   |------------+------+--------------+---------|
+   | Error Name | Code | Reuse MQTT 5 | Meaning |
+   | NO_ERROR   | 0x00 |              |         |
+
+** Application Error Code on Stream Flow
+
+   |------------------+------+--------------+---------|
+   | Error Name       | Code | Reuse MQTT 5 | Meaning |
+   | NO_ERROR         | 0x00 |              |         |
+   | FLOWID_NOT_FOUND |      |              |         |
+   | NOT_FLOW_OWNER   |      |              |         |
