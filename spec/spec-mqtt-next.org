@@ -58,7 +58,7 @@ Conforms to 1.3 of the notational conventions of RFC 9000
 QUIC is the transport layer of HTTP/3, standardised by the IETF.
 
 MQTT-next could take advantage of the features provided by the QUIC protocols and become a more flexible PUB/SUB protocol in order to
-to meet the demands of modern mobile networks and modern applications.
+meet the demands of modern mobile networks and modern applications.
 
 ** Performance Improvment
 
@@ -118,11 +118,11 @@ Congestion control can be tailored to the needs of the application.
 
 - Separate control and data traffic.
 
-  With TCP-based transport, a PUB message with a large payload can block the entire TCP stream and could
-  PINGREQ is queued. With QUIC, the PUB message and the PINGREQ are sent in
-  are sent in different streams. PINGREQ, which is used for keep-alive or liveness detection at the MQTT layer, must be sent on a higher priority control flow.
-  on a higher priority control flow.
-
+  With TCP-based transport, a MQTT.PUBLISH message with a large payload can block the entire TCP stream and MQTT.PINGREQ/MQTT.PINGRESP.
+  With QUIC, the PUB message and the PINGREQ could be sent in different streams.
+  
+    PINGREQ, which is used for keep-alive or liveness detection at the MQTT layer, must be sent on a higher priority control flow.
+    
 - Classified application data
 
   QUIC multi-streams allows the application to send different application data on different streams.
@@ -152,7 +152,6 @@ Congestion control can be tailored to the needs of the application.
 - Coexistence with other applications on the same connection such as HTTP/3
 
   QUIC Multiplexing allows the MQTT protocol to coexist with other public/private protocols on the same connection.
-  connection.
 
 - MQTT packet(s) transmission could be cancelled.
 
@@ -179,12 +178,8 @@ Congestion control can be tailored to the needs of the application.
 
   This simplifies the implementation at the MQTT client and server in terms of timing.
 
-  And it is end to end, meaning that the keep alive message must be delivered to the peer without worrying about being terminated.
+  And it is end to end, meaning that the keep alive message must be delivered to the peer without worrying about being terminated
   through a middleman such as a proxy, NAT gateway or LB.
-
-- Flow control and prioritisation support
-
-   Multiplexing feature of QUIC enables QUIC as a transport aware of different application data over different streams it carries.
 
 - Failure isolation.
 
@@ -192,7 +187,7 @@ Congestion control can be tailored to the needs of the application.
 
   A single messaging failure such as a malformed packet MUST cause the flow to be aborted, but it MAY or MAY NOT cause the connection to be closed.
 
- - Variable header compression
+ - Variable header compression [TBD]
 
   MQTT packets are binary coded packets, it is designed for smaller packet size. In order to reduce packet size without losing information,
   topic alias could be used to avoid retransmitting whole long topic in each packet. But that is not all for the other headers, such as the Content Type header.
