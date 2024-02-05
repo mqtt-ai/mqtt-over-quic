@@ -84,8 +84,9 @@ QUIC is robust to network changes, using a feature called network address migrat
 
 - Mitigate HOLB
 
-** Offers ordered/unordered, reliable/unreliable packet transmission
+** Flexiable on message delivery
 
+Offers ordered/unordered, reliable/unreliable packet transmission
 
 ** Embedded security
 
@@ -96,8 +97,6 @@ QUIC uses the TLS suite by default to ensure security and has further enhanced s
 Always ready for future updates without requiring major changes to the network.
 
 Congestion control can be tailored to the needs of the application.
-
-
 
 * New features in MQTT-next
 
@@ -566,8 +565,8 @@ control_flow_header {
 client_data_flow_header {
   Flow_type(i) = 0x12,
   Flow_id(i),
+  Flow_expire_interval(i),
   Flow_flags(8),
-  [Flow_expire_interval(i)],
   [Flow_optional_headers]
 }
 #+end_src
@@ -575,8 +574,9 @@ client_data_flow_header {
 *** Server Data Flow Stream header
 #+begin_src
 server_data_flow_header {
-  Flow_type(i) = 0x12,
+  Flow_type(i) = 0x13,
   Flow_id(i),
+  Flow_expire_interval(i),
   Flow_flags(8),
   [Flow_optional_headers]
 }
@@ -585,10 +585,12 @@ server_data_flow_header {
 *** User defined Flow Stream header
 #+begin_src
 user_data_flow_header {
-  Flow_type(i) = 0x13,
+  Flow_type(i) = 0x14,
   Flow_id(i),
 }
 #+end_src
+
+** Flow Expire Interval
 
 ** Flow Flags
 
@@ -632,7 +634,12 @@ optional_headers(1):
 
 Both client and server can initiate new flows.
 
-The flow will survive disconnection or reconnection if the session and the flow are not out of date.
+The flow will survive disconnection or reconnection if the session and the flow are not expired (set by flow_expire_interval)
+
+The acceptor which is the peer of the flow initiator must check if the flow header is valided and supported. If not, the stream
+recv should be aborted with with the error code defined in *Error Code*.
+
+Either side of the flow could abort the flow with ERROR_FLOW_OPEN_IDLE if the flow is idle after started.
 
 Mismatch of initiator and flow type in control flow is protocol error level 0.
 
@@ -662,12 +669,11 @@ The flow owner must finish sending a complete MQTT packet before starting the gr
 It is protocol error level 0 if the graceful shutdown of the flow is not initiated by the flow owner.
 
 It is protocol error level 1 for data flow and protocol error level 0 for control flow if the sender terminates the flow with an incomplete MQTT packet.
+ The recipient MUST reset the flow with APEC: ERROR_IMCOMPLETE_PACKET. (When FIN is set the recv size is known).
 
-The recipient MUST reset the flow with APEC: ERROR_IMCOMPLETE_PACKET.
+The graceful flow shutdown is completed ONLY when the other endpoint also terminates the stream by sending a QUIC STREAM FRAME with FIN flag set.
 
-The graceful flow shutdown is completed when the other endpoint also terminates the stream by sending a QUIC STREAM FRAME with FIN flag set.
-
-The receiver MUST ensure that all received messages are processed before terminating the stream.
+The receiver SHOULD ensure all received messages are processed before terminating the stream.
 
 
 *** Flow abortive termination.
@@ -813,7 +819,7 @@ If the session state is discarded, the flow states in the session are also disca
 
 ** Level 0
 
-Connection must be shutdown.
+Connection must shutdown.
 
 ** Level 1
 
@@ -821,16 +827,31 @@ Flow must be aborted but connection MAY be kept.
 
 * Error Code
 
+   Reuse MQTT 5.0 "2.4 Reason Code"
+
+
 ** Application Error Code on Connection
 
    |------------+------+--------------+---------|
    | Error Name | Code | Reuse MQTT 5 | Meaning |
    | NO_ERROR   | 0x00 |              |         |
+   |            |      |              |         |
 
 ** Application Error Code on Stream Flow
 
-   |------------------+------+--------------+---------|
-   | Error Name       | Code | Reuse MQTT 5 | Meaning |
-   | NO_ERROR         | 0x00 |              |         |
-   | FLOWID_NOT_FOUND |      |              |         |
-   | NOT_FLOW_OWNER   |      |              |         |
+   |-------------------------+------+--------------+--------------------------------------------------------------------|
+   | Error Name              | Code | Reuse MQTT 5 | Meaning                                                            |
+   | NO_ERROR                | 0x00 |              |                                                                    |
+   | ERROR_NO_FLOW_STATE     | TBD  |              | FLOW STATE does not exist                                          |
+   | NOT_FLOW_OWNER          | TBD  |              | Only FLOW owner is allowed on this operation                       |
+   | ERROR_STREAM_TYPE       | TBD  |              | Unsupported stream type                                            |
+   | ERROR_BAD_FLOW_ID       | TBD  |              | FlowID and FlowType missmatch                                      |
+   | ERROR_PERSISTENT_TOPIC  | TBD  |              | Persistent topic alias unsupported                                 |
+   | ERROR_PERSISTENT_SUB    | TBD  |              | Persistent subscription unsupported                                |
+   | ERROR_OPTIONAL_HEADER   | TBD  |              | Optional Headers unsupported                                       |
+   | ERROR_IMCOMPLETE_PACKET | TBD  |              | Receiver abort graceful shutdown due to received incomplete packet |
+   | ERROR_FLOW_OPEN_IDLE    | TBD  |              | FLOW is idle, no data after opening                                |
+
+
+
+   
