@@ -110,12 +110,12 @@ Congestion control can be tailored to the needs of the application.
 
 - Elimination of HOL blocking.
 
-  In TCP-based transport, the MQTT packet at the head of the line blocks all subsequent messages.
-  after it, so blocking the MQTT PINGREQ used to keep the connection alive.
-  which keeps the connection alive.
+  In TCP-based transport, the MQTT packet at the head of the line blocks all subsequent messages after it, it also
+    blocks the MQTT.PING/MQTT.PINGREQ for keepalive.
+    Long blocking of keepalive could cause disconnection at other endpoint.
 
   With QUIC, QUIC knows the importance of each message and sends them in separate channels that won't block each other.
-
+  
 - Separate control and data traffic.
 
   With TCP-based transport, a MQTT.PUBLISH message with a large payload can block the entire TCP stream and MQTT.PINGREQ/MQTT.PINGRESP.
@@ -862,25 +862,31 @@ Error code used in the QUIC CONNECTION_CLOSE Frame
 
  Error code used in QUIC RESET_STREAM FRAME
 
-   |-----------------------------+------+--------+---------------+-----------------------------------------------------------------------------------|
-   | Error Name                  | Code | Packet | Discard State | Meaning                                                                           |
-   | NO_ERROR                    | 0x00 |        | N             | NO ERROR                                                                          |
-   | ERROR_NO_FLOW_STATE         | 0xB3 |        | N/A           | FLOW STATE does not exist                                                         |
-   | NOT_FLOW_OWNER              | 0xB4 |        | N             | Only FLOW owner is allowed on this operation                                      |
-   | ERROR_STREAM_TYPE           | 0xB5 |        | N             | Unsupported stream type                                                           |
-   | ERROR_BAD_FLOW_ID           | 0xB6 |        | Y             | FlowID and FlowType missmatch                                                     |
-   | ERROR_PERSISTENT_TOPIC      | 0xB7 |        | N             | Persistent topic alias unsupported                                                |
-   | ERROR_PERSISTENT_SUB        | 0xB8 |        | Y             | Persistent subscription unsupported                                               |
-   | ERROR_OPTIONAL_HEADER       | 0xB9 |        | Y             | Optional Headers unsupported                                                      |
-   | ERROR_IMCOMPLETE_PACKET     | 0xBA |        | N             | Receiver abort graceful shutdown due to received incomplete packet.               |
-   | ERROR_FLOW_OPEN_IDLE        | 0xBB |        | N             | FLOW is idle, no data after opening                                               |
-   | ERROR_FLOW_CANCELLED        | 0xBC |        | Y             | FLOW operation is cancelled, also discard the flow                                |
-   | ERROR_FLOW_PACKET_CANCELLED | 0xBD |        | N             | FLOW operation is cancelled                                                       |
-   | ERROR_FLOW_REFUSED          | 0xBE |        | N             | FLOW is refused                                                                   |
-   | ERROR_DISCARD_STATE         | 0xBF |        | Y             | The entire FLOW state is discard (includes SUBSCRIPTION, QoS Delivery states ...) |
-   |                             |      |        |               |                                                                                   |
-   |-----------------------------+------+--------+---------------+-----------------------------------------------------------------------------------|
+   |-----------------------------+------+--------+---------------+-------------------------------------------------------------------------------------|
+   | Error Name                  | Code | Packet | Discard State | Meaning                                                                             |
+   | NO_ERROR                    | 0x00 |        | N             | NO ERROR                                                                            |
+   | ERROR_NO_FLOW_STATE         | 0xB3 |        | N/A           | FLOW STATE does not exist                                                           |
+   | NOT_FLOW_OWNER              | 0xB4 |        | N             | Only FLOW owner is allowed on this operation                                        |
+   | ERROR_STREAM_TYPE           | 0xB5 |        | N             | Unsupported stream type                                                             |
+   | ERROR_BAD_FLOW_ID           | 0xB6 |        | Y             | FlowID and FlowType missmatch                                                       |
+   | ERROR_PERSISTENT_TOPIC      | 0xB7 |        | N             | Persistent topic alias unsupported                                                  |
+   | ERROR_PERSISTENT_SUB        | 0xB8 |        | Y             | Persistent subscription unsupported                                                 |
+   | ERROR_OPTIONAL_HEADER       | 0xB9 |        | Y             | Optional Headers unsupported                                                        |
+   | ERROR_IMCOMPLETE_PACKET     | 0xBA |        | N             | Receiver abort graceful shutdown due to received incomplete packet.                 |
+   | ERROR_FLOW_OPEN_IDLE        | 0xBB |        | N             | FLOW is idle, no data after opening                                                 |
+   | ERROR_FLOW_CANCELLED        | 0xBC |        | Y             | FLOW operation is cancelled, also discard the flow                                  |
+   | ERROR_FLOW_PACKET_CANCELLED | 0xBD |        | N             | FLOW operation is cancelled                                                         |
+   | ERROR_FLOW_REFUSED          | 0xBE |        | N             | FLOW is refused                                                                     |
+   | ERROR_DISCARD_STATE         | 0xBF |        | Y             | The entire FLOW state is discarded (includes SUBSCRIPTION, QoS Delivery states ...) |
+   |                             |      |        |               |                                                                                     |
+   |-----------------------------+------+--------+---------------+-------------------------------------------------------------------------------------|
 
 ** Error Code in MQTT Packet
 
 Refer to MQTT 5.0, 2.4 Reason Code
+
+* Limitations
+
+  1. To resume a multistream session after fallback to TCP based transport needs extra work to reuse TCP connection
+     for all the streams.
+      
