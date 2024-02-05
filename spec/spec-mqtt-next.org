@@ -668,7 +668,7 @@ The flow owner must finish sending a complete MQTT packet before starting the gr
 
 It is protocol error level 0 if the graceful shutdown of the flow is not initiated by the flow owner.
 
-It is protocol error level 1 for data flow and protocol error level 0 for control flow if the sender terminates the flow with an incomplete MQTT packet.
+It is protocol error level 2 for data flow and protocol error level 0 for control flow if the sender terminates the flow with an incomplete MQTT packet.
  The recipient MUST reset the flow with APEC: ERROR_IMCOMPLETE_PACKET. (When FIN is set the recv size is known).
 
 The graceful flow shutdown is completed ONLY when the other endpoint also terminates the stream by sending a QUIC STREAM FRAME with FIN flag set.
@@ -709,7 +709,6 @@ The incomplete MQTT packet in the buffer at both ends MUST be discarded.
 The stream owner must ensure that it has sufficient flow control credits before starting the takeover process.
 
 As each endpoint manages it's own flow id spaces, the takeover could change the persistent flag of the flow.
-(Note that it is a protocol error level 1 to update the flow that it does not own).
 
 ** Flow Recover
 
@@ -814,44 +813,79 @@ Session State must be discarded when the connection is closed AND the session ex
 
 If the session state is discarded, the flow states in the session are also discarded.
 
+* Error Handlings
 
-* Protocol Error Levels
+  MQTT-next is designed to be robust to application errors so that the connection could be maintained and the other application muxing the flow in the same connection are not affected by errors that are isolated.
 
-** Level 0
+  Errors do not necessarily mean logical errors or protocol violations. It could also mean the cancellation of operations such as
+  aborting the transmission of a large payload, or cancelling a subscription that is no longer of interest as a shortcut to sending an unsubscribe.
 
-Connection must shutdown.
+  There are three levels of protocol error:
 
-** Level 1
+  * Protocol Error Levels
 
-Flow must be aborted but connection MAY be kept.
+  1. Protocol error level 0
+
+  This is a serious error that cannot be violated or the connection cannot be served by the broker.
+
+  The connection MUST be closed.
+
+  For other errors, it is up to the implementation whether to close the connection by notifying the peer or to close silently.
+
+  2. Protocol error level 1
+
+  The error is isolated in the specific flow, but the flow state MUST be discarded because it is impossible to maintain the state
+  or the error could lead to inconsistent states.
+
+  3. Protocol error level 2
+
+  Not a serious error, most likely could be recovered with a retry or the error is isolated in the specific flow.
+
+  The handling of protocol error level 2 could be negotiated between the two endpoints or decided by implementation.
+
+  The flow state is maintained but the flow is aborted and a restart is required for recovery.
+
+  The endpoints aborting the flow MUST abort the flow with a reason sent to the peer.
+
+  The endpoint MAY gracefully shut down or abort another flow as a side effect of a protocol error level 2.
 
 * Error Code
 
-   Reuse MQTT 5.0 "2.4 Reason Code"
-
-
 ** Application Error Code on Connection
 
-   |------------+------+--------------+---------|
-   | Error Name | Code | Reuse MQTT 5 | Meaning |
-   | NO_ERROR   | 0x00 |              |         |
-   |            |      |              |         |
+Error code used in the QUIC CONNECTION_CLOSE Frame
+
+   |-------------------+------+--------------+--------------------------------------------------------|
+   | Error Name        | Code | Reuse MQTT 5 | Meaning                                                |
+   | NO_ERROR          | 0x00 |              |                                                        |
+   | ERROR_TLS_ERROR   | 0xB1 |              | TLS handshake success but extra validations are failed |
+   | ERROR_UNSPECIFIED | 0xB2 |              | Default UNSPECIFIED error                              |
+   |                   |      |              |                                                        |
+   |-------------------+------+--------------+--------------------------------------------------------|
 
 ** Application Error Code on Stream Flow
 
-   |-------------------------+------+--------------+--------------------------------------------------------------------|
-   | Error Name              | Code | Reuse MQTT 5 | Meaning                                                            |
-   | NO_ERROR                | 0x00 |              |                                                                    |
-   | ERROR_NO_FLOW_STATE     | TBD  |              | FLOW STATE does not exist                                          |
-   | NOT_FLOW_OWNER          | TBD  |              | Only FLOW owner is allowed on this operation                       |
-   | ERROR_STREAM_TYPE       | TBD  |              | Unsupported stream type                                            |
-   | ERROR_BAD_FLOW_ID       | TBD  |              | FlowID and FlowType missmatch                                      |
-   | ERROR_PERSISTENT_TOPIC  | TBD  |              | Persistent topic alias unsupported                                 |
-   | ERROR_PERSISTENT_SUB    | TBD  |              | Persistent subscription unsupported                                |
-   | ERROR_OPTIONAL_HEADER   | TBD  |              | Optional Headers unsupported                                       |
-   | ERROR_IMCOMPLETE_PACKET | TBD  |              | Receiver abort graceful shutdown due to received incomplete packet |
-   | ERROR_FLOW_OPEN_IDLE    | TBD  |              | FLOW is idle, no data after opening                                |
+ Error code used in QUIC RESET_STREAM FRAME
 
+   |-----------------------------+------+--------+---------------+-----------------------------------------------------------------------------------|
+   | Error Name                  | Code | Packet | Discard State | Meaning                                                                           |
+   | NO_ERROR                    | 0x00 |        | N             | NO ERROR                                                                          |
+   | ERROR_NO_FLOW_STATE         | 0xB3 |        | N/A           | FLOW STATE does not exist                                                         |
+   | NOT_FLOW_OWNER              | 0xB4 |        | N             | Only FLOW owner is allowed on this operation                                      |
+   | ERROR_STREAM_TYPE           | 0xB5 |        | N             | Unsupported stream type                                                           |
+   | ERROR_BAD_FLOW_ID           | 0xB6 |        | Y             | FlowID and FlowType missmatch                                                     |
+   | ERROR_PERSISTENT_TOPIC      | 0xB7 |        | N             | Persistent topic alias unsupported                                                |
+   | ERROR_PERSISTENT_SUB        | 0xB8 |        | Y             | Persistent subscription unsupported                                               |
+   | ERROR_OPTIONAL_HEADER       | 0xB9 |        | Y             | Optional Headers unsupported                                                      |
+   | ERROR_IMCOMPLETE_PACKET     | 0xBA |        | N             | Receiver abort graceful shutdown due to received incomplete packet.               |
+   | ERROR_FLOW_OPEN_IDLE        | 0xBB |        | N             | FLOW is idle, no data after opening                                               |
+   | ERROR_FLOW_CANCELLED        | 0xBC |        | Y             | FLOW operation is cancelled, also discard the flow                                |
+   | ERROR_FLOW_PACKET_CANCELLED | 0xBD |        | N             | FLOW operation is cancelled                                                       |
+   | ERROR_FLOW_REFUSED          | 0xBE |        | N             | FLOW is refused                                                                   |
+   | ERROR_DISCARD_STATE         | 0xBF |        | Y             | The entire FLOW state is discard (includes SUBSCRIPTION, QoS Delivery states ...) |
+   |                             |      |        |               |                                                                                   |
+   |-----------------------------+------+--------+---------------+-----------------------------------------------------------------------------------|
 
+** Error Code in MQTT Packet
 
-   
+Refer to MQTT 5.0, 2.4 Reason Code
