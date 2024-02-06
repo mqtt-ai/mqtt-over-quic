@@ -187,26 +187,25 @@ Congestion control can be tailored to the needs of the application.
 
   A single messaging failure such as a malformed packet MUST cause the flow to be aborted, but it MAY or MAY NOT cause the connection to be closed.
 
- - Variable header compression [TBD]
+- Variable header compression [TBD]
 
   MQTT packets are binary coded packets, it is designed for smaller packet size. In order to reduce packet size without losing information,
   topic alias could be used to avoid retransmitting whole long topic in each packet. But that is not all for the other headers, such as the Content Type header.
 
-  HTTP/3 Q-PACK enables header compression/encoding, which the MQTT protocol could use to reduce packet size by compressing other variable headers or user-defined properties.
+  HTTP/3 Q-PACK enables header compression/encoding, which the MQTT protocol could use to reduce packet size by compressing other variable headers,
   variable headers or user-defined properties.
 
 
 * Overview of changes to the MQTT protocol
 
-0. MQTT packets are transported via flow or datagrams.
-1. The subscription is now associated with the flow.
-2. Acking QoS > 0 messages is also done on the same flow that it is published.
-3. Publish QoS 0 message MAY have Packet ID field.
-4. New per flow state in session state for QoS messages.
-5. MQTT packet flow control is now per flow.
-6. Server can 'push' message to server flow, which server initiates the flow.
-7. PINGREQ/PINGRESP are associated with flow.
-
+1. MQTT packets are transported via reliable flow or unreliable datagrams.
+2. The subscription is now associated with the flow.
+3. Acking QoS > 0 messages is also done on the same flow that it is published.
+4. Publish QoS 0 messages MAY have the Packet ID field as they could be sent in datagrams.
+5. Flow state per flow is introduced to track the QoS > 0 message delivery.
+6. MQTT packet flow control is now in the flow scope instead of in the connection scope.
+7. The server can 'push' messages to the server flow, which the server initiates.
+8. PINGREQ/PINGRESP are associated with the flow for application liveness detection, and the keep-alive interval is not enforced on the data stream.     
 
 * Operating Modes
 
@@ -862,28 +861,31 @@ Error code used in the QUIC CONNECTION_CLOSE Frame
 
  Error code used in QUIC RESET_STREAM FRAME
 
-   |-----------------------------+------+--------+---------------+-------------------------------------------------------------------------------------|
-   | Error Name                  | Code | Packet | Discard State | Meaning                                                                             |
-   | NO_ERROR                    | 0x00 |        | N             | NO ERROR                                                                            |
-   | ERROR_NO_FLOW_STATE         | 0xB3 |        | N/A           | FLOW STATE does not exist                                                           |
-   | NOT_FLOW_OWNER              | 0xB4 |        | N             | Only FLOW owner is allowed on this operation                                        |
-   | ERROR_STREAM_TYPE           | 0xB5 |        | N             | Unsupported stream type                                                             |
-   | ERROR_BAD_FLOW_ID           | 0xB6 |        | Y             | FlowID and FlowType missmatch                                                       |
-   | ERROR_PERSISTENT_TOPIC      | 0xB7 |        | N             | Persistent topic alias unsupported                                                  |
-   | ERROR_PERSISTENT_SUB        | 0xB8 |        | Y             | Persistent subscription unsupported                                                 |
-   | ERROR_OPTIONAL_HEADER       | 0xB9 |        | Y             | Optional Headers unsupported                                                        |
-   | ERROR_IMCOMPLETE_PACKET     | 0xBA |        | N             | Receiver abort graceful shutdown due to received incomplete packet.                 |
-   | ERROR_FLOW_OPEN_IDLE        | 0xBB |        | N             | FLOW is idle, no data after opening                                                 |
-   | ERROR_FLOW_CANCELLED        | 0xBC |        | Y             | FLOW operation is cancelled, also discard the flow                                  |
-   | ERROR_FLOW_PACKET_CANCELLED | 0xBD |        | N             | FLOW operation is cancelled                                                         |
-   | ERROR_FLOW_REFUSED          | 0xBE |        | N             | FLOW is refused                                                                     |
-   | ERROR_DISCARD_STATE         | 0xBF |        | Y             | The entire FLOW state is discarded (includes SUBSCRIPTION, QoS Delivery states ...) |
-   |                             |      |        |               |                                                                                     |
-   |-----------------------------+------+--------+---------------+-------------------------------------------------------------------------------------|
+   |-------------------------------+------+--------+---------------+-------------------------------------------------------------------------------------|
+   | Error Name                    | Code | Packet | Discard State | Meaning                                                                             |
+   | NO_ERROR                      | 0x00 |        | N             | NO ERROR                                                                            |
+   | ERROR_NO_FLOW_STATE           | 0xB3 |        | N/A           | FLOW STATE does not exist                                                           |
+   | NOT_FLOW_OWNER                | 0xB4 |        | N             | Only FLOW owner is allowed on this operation                                        |
+   | ERROR_STREAM_TYPE             | 0xB5 |        | N             | Unsupported stream type                                                             |
+   | ERROR_BAD_FLOW_ID             | 0xB6 |        | Y             | FlowID and FlowType missmatch                                                       |
+   | ERROR_PERSISTENT_TOPIC        | 0xB7 |        | N             | Persistent topic alias unsupported                                                  |
+   | ERROR_PERSISTENT_SUB          | 0xB8 |        | Y             | Persistent subscription unsupported                                                 |
+   | ERROR_OPTIONAL_HEADER         | 0xB9 |        | Y             | Optional Headers unsupported                                                        |
+   | ERROR_IMCOMPLETE_PACKET       | 0xBA |        | N             | Receiver abort graceful shutdown due to received incomplete packet.                 |
+   | ERROR_FLOW_OPEN_IDLE          | 0xBB |        | N             | FLOW is idle, no data after opening                                                 |
+   | ERROR_FLOW_CANCELLED          | 0xBC |        | Y             | FLOW operation is cancelled, also discard the flow                                  |
+   | ERROR_FLOW_PACKET_CANCELLED   | 0xBD |        | N             | FLOW operation is cancelled                                                         |
+   | ERROR_FLOW_REFUSED            | 0xBE |        | N             | FLOW is refused                                                                     |
+   | ERROR_DISCARD_STATE           | 0xBF |        | Y             | The entire FLOW state is discarded (includes SUBSCRIPTION, QoS Delivery states ...) |
+   | ERROR_SERVER_PUSH_NOT_WELCOME | 0XC0 |        | Y             | Server Push flow is not welcomed by the client                                      |
+   |                               |      |        |               |                                                                                     |
+   |-------------------------------+------+--------+---------------+-------------------------------------------------------------------------------------|
 
 ** Error Code in MQTT Packet
 
-Refer to MQTT 5.0, 2.4 Reason Code
+Refer to MQTT 5.0, 2.4 Reason Code.
+
+This applies to the datagram as well.
 
 * Limitations
 
