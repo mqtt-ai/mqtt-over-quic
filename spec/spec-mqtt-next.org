@@ -8,6 +8,8 @@ This document defines MQTT-next, a mapping of MQTT to the QUIC transport protoco
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14 RFC2119 RFC8174 when, and only when, they appear in all capitals, as shown here.
 
+endpoint: MQTT client or MQTT broker
+ 
 connection: A transport-layer connection between two endpoints using QUIC as the transport protocol, defined in RFC9000
 
 stream: QUIC stream defined in RFC9000
@@ -40,8 +42,6 @@ MQTT packet(s): MQTT control packets defined in MQTT protocol.
 
 HOLB: head-of-line blocking
 
-endpoint: MQTT client or MQTT broker
-
 peer: remote endpoint
 
 mqtt-next: unversioned MQTT version that supports MQTT over QUIC advance multistream mode.
@@ -55,7 +55,7 @@ Conforms to 1.3 of the notational conventions of RFC 9000
 
 * Motivation
 
-QUIC is the transport layer of HTTP/3, standardised by the IETF.
+QUIC is the transport layer of HTTP/3, standardised by IETF.
 
 MQTT-next could take advantage of the features provided by the QUIC protocols and become a more flexible PUB/SUB protocol in order to
 meet the demands of modern mobile networks and modern applications.
@@ -72,6 +72,8 @@ QUIC is robust to network changes, using a feature called network address migrat
 
 ** Multiplexing enables flexible asynchronous parallel streaming.
 
+stream runs independently, single stream provides ordering and multistream provides concurrency.
+
 - Flow control and prioritisation of application data.
 
 - Coexistence with other public/private protocols such as http/3.
@@ -83,6 +85,8 @@ QUIC is robust to network changes, using a feature called network address migrat
 - Make MQTT more resilient to application errors.
 
 - Mitigate HOLB
+
+  HOLB only happens to each QUIC stream, but not the entire connection.
 
 ** Flexiable on message delivery
 
@@ -110,9 +114,9 @@ Congestion control can be tailored to the needs of the application.
 
 - Elimination of HOL blocking.
 
-  In TCP-based transport, the MQTT packet at the head of the line blocks all subsequent messages after it, it also
-    blocks the MQTT.PING/MQTT.PINGREQ for keepalive.
-    Long blocking of keepalive could cause disconnection at other endpoint.
+  In TCP-based transport, the MQTT packet at the head of the line blocks all subsequent messages following it, it also
+  blocks the MQTT.PING/MQTT.PINGREQ for keepalive.
+  Long blocking of keepalive could cause disconnection at other endpoint.
 
   With QUIC, QUIC knows the importance of each message and sends them in separate channels that won't block each other.
   
@@ -131,13 +135,13 @@ Congestion control can be tailored to the needs of the application.
 
   1. assign different topic data to different streams
 
-  2. Separate traffic for different QoS messages.
+  2. Separate stream for different QoS messages.
 
-  3. Separate traffic for publishing and subscriptions.
+  3. Separate stream for publishing and subscriptions.
 
 - Flow control on classified traffic
 
-  QUIC enables flow control both at the MQTT connection level and at the per-stream level.
+  QUIC enables flow control both at the connection level and at the stream level.
 
   This allows application data relays on different QUIC streams to be flow controlled independently.
 
@@ -162,7 +166,7 @@ Congestion control can be tailored to the needs of the application.
   - Cancel the transmission of a large payload packet.
   - Cancel the transmission of obsolete packets.
 
-  For TCP based traffic, cancelling a pending MQTT packet means disconnecting and reconnecting.
+  For TCP-based traffic, cancelling a pending MQTT packet means disconnecting and reconnecting.
 
 - Support both reliable and unreliable delivery.
 
@@ -170,15 +174,15 @@ Congestion control can be tailored to the needs of the application.
 
   This could make MQTT QoS 0 packets truly "fire and forget" with almost no cost for retransmission.
 
-  In the TCP-based protocol, the TCP segment containing the bytes of the QoS 0 packet is retransmitted by the TCP stack in order.
+  In TCP-based protocol, the TCP segment containing the bytes of the QoS 0 packet is retransmitted by the TCP stack in order.
 
 - Build-in transport layer keepalive
 
-  In MQTT-next, both client and server could use the keep alive mechanism of QUIC transport, which is end-to-end.
+  In MQTT-next, both client and server could use the keep-alive mechanism of QUIC transport, which is end-to-end.
 
   This simplifies the implementation at the MQTT client and server in terms of timing.
 
-  And it is end to end, meaning that the keep alive message must be delivered to the peer without worrying about being terminated
+  And it is end to end, meaning that the keepalive message must be delivered to the peer without worrying about being terminated
   through a middleman such as a proxy, NAT gateway or LB.
 
 - Failure isolation.
@@ -202,8 +206,11 @@ Congestion control can be tailored to the needs of the application.
 2. The subscription is now associated with the flow.
 3. Acking QoS > 0 messages is also done on the same flow that it is published.
 4. Publish QoS 0 messages MAY have the Packet ID field as they could be sent in datagrams.
+   Application at receive side MAY use Packet ID to identify if the packet is a resend or check the ordering of
+   unordered messages.
 5. Flow state per flow is introduced to track the QoS > 0 message delivery.
 6. MQTT packet flow control is now in the flow scope instead of in the connection scope.
+   The flow header could have optional "Receive maximum" header.
 7. The server can 'push' messages to the server flow, which the server initiates.
 8. PINGREQ/PINGRESP are associated with the flow for application liveness detection, and the keep-alive interval is not enforced on the data stream.     
 
@@ -260,6 +267,7 @@ Compatible with single stream mode.
 
       Disadvantages:
       a. Persistent stream session is not available on data stream.
+         In this mode there is no stream header, the stream only streams MQTT packets, client and server could not.
 
 ** Advanced multistreams
 
@@ -268,7 +276,7 @@ Extends the simple multistream mode with the following features:
 1. Can coexist with another protocol (http/3 or private protocol) on the same connection.
 2. Support unreliable delivery.
 3. Defines control message cancellation procedure.
-4. Server initiated stream for implicit subscriptions.
+4. Server initiated stream for predefined subscriptions.
 5. Abstract 'flow' concept that could be resumed after reconnect.
 6. Q-PACK support for message header compression, greatly reducing message size.
 7. Defines robustness flow procedure.
@@ -341,22 +349,23 @@ QUIC connections are established as described in [RFC9000].
 
 ** Connection Keepalive
 
-Connection keepalive is performed on the QUIC transport. Both server and client maintain keepalive traffic on their own.
+Connection keepalive SHOULD be performed on the QUIC transport. Both server and client maintain keepalive traffic on their own.
 
 However, MQTT keepalive could still be used over QUIC, but note that if QUIC connection keepalive is set,
-must be greater than the MQTT keepalive value.
+the connection idle timeout SHOULD be greater than the MQTT keepalive interval to prevent connection idle
+shutdown while sending the MQTT.PINGREQ.
 
 ** Connection termination
 
 *** Graceful shutdown
 
-Graceful shutdown only requires graceful shutdown of the control flow, other types of flows could be shut down gracefully or aborted. see flow shutdown section.
+Graceful shutdown only requires graceful shutdown of the control flow, other types of flows could be shut down gracefully or aborted. See flow shutdown section.
 
 Connection graceful shutdown could be used for
 
 Broker:
 1. redirect the client to the new server
-2. prevent MQTT.WILL message being sent.
+2. prevent MQTT WILL message from being sent.
 
 Client:
 1. clear session states
@@ -371,7 +380,7 @@ Then it MUST terminate the control flow.
 
 Any MQTT packets received before the control stream is closed SHOULD be properly handled.
 
-After closing the control stream, an endpoint MUST shutdown the connection explicitly (informing the peer) or silently (without informing the peer).
+After closing the control stream, an endpoint MUST shutdown the connection. Either explicitly (informing the peer) or silently (without informing the peer).
 
 MQTT defines graceful shutdown with the stream shutdown reason code: NO_ERROR.
 
@@ -381,7 +390,7 @@ If MQTT coexists with http/3, the http3/ graceful shutdown procedure must also b
 
 Client MUST first send MQTT.DISCONNECT over control flow
     AND then MUST wait for control flow graceful shutdown to complete
-    AND then Client MAY SHUTDOWN the connection by starting the connection Immediate shutdown of the QUIC protocol
+    AND then Client MAY shutdown the connection by starting the connection Immediate shutdown of the QUIC protocol
              OR the client MAY terminate the connection locally without notifying the peer.
 
 Client MUST discard all MQTT packets received from the Broker after sending the MQTT.DISCONNECT.
@@ -389,7 +398,8 @@ Client MUST discard all MQTT packets received from the Broker after sending the 
 If the client receives a QUIC CONNECTION_SHUTDOWN FRAME before completing the control flow graceful shutdown procedure
 then the graceful shutdown procedure will fail.
 
-Client MAY timeout waiting for a control flow graceful shutdown to complete, it MAY start an immediate connection shutdown procedure with code ERROR_DISCONNECT_TIMEOUT. Connection graceful shutdown has failed.
+Client MAY timeout waiting for a control flow graceful shutdown to complete, it MAY start an immediate connection shutdown procedure with code ERROR_DISCONNECT_TIMEOUT.
+Then the Connection graceful shutdown is failed.
 
 If the server receives MQTT.DISCONNECT via control flow,
 it MAY attempt to gracefully shut down other flows by processing all received MQTT packets
@@ -448,7 +458,7 @@ QUIC packet with/without DUP flag based on QoS levels.
 
 Sending unreliable datagram may fail due to reasons, application may try to switch to other communication channels such as using a flow.
 
-Reasons for failure to send unreliable datagram
+Possible known reasons for failure to send unreliable datagram in alive connection.
 
 1. not supported by peer
 2. flow control
@@ -480,10 +490,11 @@ The client MUST NOT downgrade from QUIC to plain-text TCP.
 
 *** Discovering and upgrading
 
-The client could learn that the server supports MQTT-next via ALPN during the TCP/TLS handshake, so the upgrade is possible.
+The client could learn that the server supports MQTT-next via ALPN during the TCP/TLS handshake, so the upgrade is possible
 via QUIC connection to the same endpoint and port before the client sends the MQTT.connect control message over TCP/TLS.
 
-If the client has sent the MQTT.connect packet to the server via both TCP-based transport and QUIC transport, session takeover can be triggered.
+NOTE, When the client transmits the MQTT.connect packet to the server using both TCP-based transport and QUIC transport,
+precedence is given to the latter connection established.
 
 
 * MQTT Flows
@@ -520,6 +531,9 @@ The maximum number of flows is limited by the connection flow control per implem
 ** Flow ownership
 
 The flow is owned by the endpoint which starts it.
+
+The owner takes responsibility for the stream lifecycle, including startup, shutdown, restart after reconnect,
+error recovery. This avoids race conditions or leaving unused streams.
 
 ** Flow ID
 
