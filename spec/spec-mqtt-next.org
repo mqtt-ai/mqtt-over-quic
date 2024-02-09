@@ -52,7 +52,6 @@ ttl: time to live
 
 Conforms to 1.3 of the notational conventions of RFC 9000
 
-
 * Motivation
 
 QUIC is the transport layer of HTTP/3, standardised by IETF.
@@ -265,7 +264,6 @@ There are three modes of operation for QUIC-next, each mode having its own advan
 - Compatibility with MQTT protocols
 
 - Supported features
-
 
 ** Single Stream
 
@@ -552,7 +550,7 @@ mqtt-next defines three types of datagram payloads
 
 If the QUIC handshake fails or timed out, the client MUST downgrade the protocol to reconnect to the TCP/TLS endpoint.
 
-The client MUST NOT downgrade from QUIC to plain-text TCP.
+The client SHOULD NOT downgrade from QUIC to plain-text TCP.
 
 *** Discovering and upgrading
 
@@ -565,15 +563,22 @@ precedence is given to the latter connection established, the latter connection 
 
 * MQTT Flows
 
+The term =flow= is used in mqtt-next to distinguish the term =stream= in the QUIC protocol.
+
+@NOTE
+The stream id in QUIC protocol isn't transparent to the application, as stated in RFC9000:
+#+begin_quote
+  A stream ID that is used out of order results in all streams of
+  that type with lower-numbered stream IDs also being opened.
+#+end_quote
+
+Flows are the abstraction of concurrent logical streams in multistream advanced mode.
+
 MQTT Flow provides reliable, ordered unidi/bidi transport for MQTT packets.
 
 There may be one or more flows in a connection between two endpoints.
 
 The flow header identifies the type of flow.
-
-The term =flow= is used to distinguish the term =stream= in the QUIC protocol.
-
-Flows are the abstraction of concurrent logical streams in a multistream advanced mode connection.
 
 Application operates flows:
 
@@ -622,7 +627,6 @@ The flow header is the first few bytes used by both endpoints to identify the fl
 
 NOTE, the 'Variable-Length Integer Encoding' (i) in the flow header is defined in RFC 9000 and not the "Variable Byte Integer" in the MQTT specification.
 
-
 Stream Header Formats:
 
 *** Control Flow Stream header
@@ -665,6 +669,9 @@ user_data_flow_header {
 #+end_src
 
 ** Flow Expire Interval
+
+Similar to the session expiry interval in MQTT.CONNECT packet, specifies the number of seconds both the client and server will retain the
+flow state information after the flow terminates unexpectedly.
 
 ** Flow Flags
 
@@ -713,7 +720,8 @@ The flow will survive disconnection or reconnection if the session and the flow 
 The acceptor which is the peer of the flow initiator must check if the flow header is valided and supported. If not, the stream
 recv should be aborted with with the error code defined in *Error Code*.
 
-Either side of the flow could abort the flow with ERROR_FLOW_OPEN_IDLE if the flow is idle after started.
+Either side of the flow could abort the flow with ERROR_FLOW_OPEN_IDLE if the flow is idle after started this also including the scenario
+that receiving timout of a complete stream header.
 
 Mismatch of initiator and flow type in control flow is protocol error level 0.
 
