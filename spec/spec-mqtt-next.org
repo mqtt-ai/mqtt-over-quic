@@ -467,35 +467,70 @@ The following conditions can trigger abnormal connection shutdown.
 
 *** Sending unreliable datagrams over the connection
 
-The QUIC extension RFC 9221 adds support for sending and receiving unreliable datagrams over QUIC.
+The QUIC extension RFC 9221 introduces unreliable datagrams, allowing applications to transmit data over a QUIC connection
+with an emphasis on speed over guaranteed delivery.
 
-Support or not support of unreliable datagram is negotiated during connection handshake as defined in RFC [@TODO].
+This offers benefits for real-time data and scenarios where occasional losses are acceptable.
+
+Negotiation:
+
+Support for unreliable datagrams is negotiated during the initial QUIC handshake transport parameter defined in RFC9221,
+This allows both endpoints to agree on using datagrams before transmission.
+
+MQTT packets can be directly encoded within the datagram payload for efficient transfer.
 
 MQTT packet can be encoded in the payload of unreliable datagram.
 
-Unreliable means:
 
-1. Out-of-order delivery of datagram frames.
+Unreliable Delivery Characteristics:
 
-2. Datagram frame could be lost without recovery.
+1. Unordered Delivery:
 
-3. Sending could fail due to size limitation (MTU).
+   Datagram frames might arrive out of order, unlike the ordered nature of standard QUIC streams.
+   This necessitates application-level handling of message sequence if order matters.
 
-All QoS >= 0 messages could be sent with unreliable datagram.
+2. Potential Loss:
 
-The unreliable datagram is ACK-eliciting, the application MAY know if the datagram is received or lost.
-received, lost or possibly lost, and the application may choose to explicitly resend the
-QUIC packet with/without DUP flag based on QoS levels.
+   Datagram frames can be lost without retransmission attempts.
+   Applications that require guaranteed delivery should continue using reliable QUIC streams alongside datagrams.
 
-Sending unreliable datagram may fail due to reasons, application may try to switch to other communication channels such as using a flow.
+3. Size Limitations:
 
-Possible known reasons for failure to send unreliable datagram in alive connection.
+   Like any network packet, datagrams have a size limit (MTU).
 
-1. not supported by peer
-2. flow control
-3. limited by MTU size
 
-The application is free to choose how to encode the message in the datagram.
+
+Messages with QoS values greater than or equal to 0 MAY be sent as unreliable datagrams.
+
+However, While offering flexibility using this mechanism implies relaxing the QoS guarantees associated with that message.
+
+- Sender Responsibilities:
+
+  The unreliable datagram is ACK-eliciting, the sender application MAY know if the datagram is received, lost or possibly lost,
+and the application may choose implement appropriate loss detection and recovery mechanisms.
+
+- Receiver Expectations:
+
+Be prepared to receive datagrams out of order and potentially duplicated.
+Implement mechanisms to handle these eventualities, such as deduplication based on unique identifiers or application-specific context.
+
+
+Also the unreliable datagram may not be sent when the connection is alive, common Failure Scenarios:
+
+- Unsupported Feature:
+
+If the peer does not support unreliable datagrams, sending attempts will fail with an appropriate error indication.
+Applications should handle this scenario gracefully and switch to alternative communication channels, such as stream-based flows.
+
+- Flow Control Limitations:
+  Unreliable datagrams, like other QUIC data, are subject to flow control restrictions.
+  If available flow control limits are exceeded, sending attempts will fail. In such cases, applications should either wait for more
+  flow control credits or consider alternative channels that have sufficient capacity to accommodate the datagram transmission.
+
+- MTU Size Constraints:
+  If the datagram size exceeds the Maximum Transmission Unit (MTU) of the path, sending will fail.
+  Applications can address this by either fragmenting the datagram into smaller segments that comply with the MTU or exploring alternative
+  channels that can handle larger payloads without fragmentation overhead.
 
 mqtt-next defines three types of datagram payloads
 
