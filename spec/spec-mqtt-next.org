@@ -582,12 +582,25 @@ The flow header identifies the type of flow.
 
 Application operates flows:
 
-- start the flow
-- close the flow gracefully or abort it
-- refresh the flow: replace the stream of the flow with a new stream.
-- Limit the number of streams.
+- Start new flow
 
-Flow could be reused/restarted or resumed.
+- Start a flow with same flow id that was gracefully shutdown previously.
+
+- Recover aborted flows with either a clean state or preserved state.
+
+- Shutdown flows gracefully
+  Terminate flows in an orderly manner.
+
+- Abort the flow
+  Immediately discontinue communication on a flow which could be
+  abort sending, abort receiving or abort both sending and receiving.
+
+- Refresh the flow
+  replace the stream of the flow with a new stream.
+
+- Limit the number of flows.
+
+- Flow control each flow in bytes.
 
 The maximum number of flows is limited by the connection flow control per implementation.
 
@@ -614,12 +627,13 @@ The FlowID is unique within the MQTT session.
 
 FlowID is a Variable-Length Integer.
 
-The least significant bit of the FlowID identifies if it is a server flow to avoid FlowID collision between client and server.
+The least significant bit of the FlowID identifies if it is a server flow to avoid FlowID collision between client and server,
+and the owner of the flow MUST ensure the the bit is correctly set.
 
 ** Flow Type
 
 In order for MQTT to coexist with other protocols on the same QUIC connection,
-MQTT-next uses defined (IANA) flow types to distinguish from the other protocols.
+MQTT-next uses defined (see IANA) flow types to distinguish from the other protocols.
 
 ** Flow Header
 
@@ -671,12 +685,11 @@ user_data_flow_header {
 ** Flow Expire Interval
 
 Similar to the session expiry interval in MQTT.CONNECT packet, specifies the number of seconds both the client and server will retain the
-flow state information after the flow terminates unexpectedly.
+flow state information after the flow terminates unexpectedly (abortive shutdown).
 
 ** Flow Flags
 
 #+begin_src
-
 flow_flags {
   clean(1),
   abort_if_no_state(1),
@@ -689,7 +702,7 @@ flow_flags {
 #+end_src
 
 clean:
-  if it is a clean start of the flow, both endpoint MUST drop the states.
+  if it is a clean start of the flow, both endpoint MUST discard the previous persistent flow states.
 
 abort_if_no_state:
   If set and flow state is gone for any reason, peer MUST abort this flow with RC: ERROR_NO_FLOW_STATE
@@ -701,21 +714,40 @@ persistent_qos:
 
 persistent_topic_alias:
   if set, both endpoints must persistent topic alias
-  if unset, both endpoints must not persistent topic alias that topic alias mapping does not survives from a flow close.
+  if unset, both endpoints must not persistent topic alias that topic alias mapping does not survives from a flow shutdown.
 
 persistent_subscriptions(1):
-  if set, both endpoints must persistent topic id.
-  It is protocol error level 1 if this flag is set in server flow
+  if set, both endpoints must persistent subscriptions and subscription ID.
+  It is protocol error level 1 if this flag is set in server flow.
 
 optional_headers(1):
   if set, optional_headers are set
 
+** Optional Headers
+
+#+begin_src
+optional_headers {
+   optional_header ...
+}
+
+optional_header {
+   header_len(8),
+   header(header_len),
+}
+
+#+end_src
+
+Predefined Optional header here:
+
+@TODO
 
 ** Flow start
 
 Both client and server can initiate new flows.
 
-The flow will survive disconnection or reconnection if the session and the flow are not expired (set by flow_expire_interval)
+The flow will survive disconnection or reconnection if the session and the flow are not expired (set by flow_expire_interval > 0).
+
+The flow will also survives abortion if flow_expire_interval > 0.
 
 The acceptor which is the peer of the flow initiator must check if the flow header is valided and supported. If not, the stream
 recv should be aborted with the error code defined in *Error Code*.
@@ -726,9 +758,20 @@ This includes the situation where a timeout occurs upon receiving a complete str
 
 Mismatch of initiator and flow type in control flow is protocol error level 0.
 
-Mismatch initiator and flow type in data flow is protocol error level 1.
+Mismatch of initiator and flow type in data flow is protocol error level 1.
 
-** Flow Termination (Close)
+
+** Flow expiration
+
+Flow expiration means discard the flow state.
+
+The flow state SHOULD NOT expire when it is not in shutdown states.
+
+The flow state MUST expire after flow graceful shutdown.
+
+The `flow_expire_interval` in the stream header defines for how long should the flow expire after abortive shutdown.
+
+** Flow Termination (Shutdown)
 
 The flow termination could be triggered by either endpoint gracefully (clean) or aborting.
 
@@ -795,15 +838,31 @@ As each endpoint manages it's own flow id spaces, the takeover could change the 
 
 ** Flow Recover
 
-Flow recover means that a previously aborted flow identified by flowid is reopened.
+Flow recover means that a previously aborted flow identified by Flow ID is restarted with their preserved state.
 
 Flow recover happens in two cases:
 
-1. restarting an aborted flow
+1. In cases where a flow was deliberately aborted for any reason, the owner of the flow can initiate
+   a recovery request to revive it with its previous state.
 
-2. Restart of a flow to which a connection has been re-established.
+2. When a connection is interrupted and later re-established, flows that were active before the disconnection
+   can be recovered if their state is preserved.
 
-The owner of the flow is responsible for restarting the flow.
+Flow recover success only when both endpoints holds the preserved state.
+
+The owner of the flow is responsible for restarting the flow with the `clean` bit in Flow flag MUST set to False to recover the flow.
+
+If the receiving side cannot successfully recover the flow state for any reason AND the `abort_if_no_state` bit is set,
+it MUST abort the flow with the ERROR_NO_FLOW_STATE error code.
+
+If the receiving side cannot successfully recover the flow state for any reason AND the `abort_if_no_state` bit is unset,
+it MUST NOT abort the flow with the ERROR_NO_FLOW_STATE error code. It is considered a protocol error (level 0) if receiver
+does not follow this and the connection should be abored with ERROR_PROTOCOL_L0.
+
+Repeated recovery attempts:
+
+It is considered a protocol error (level 0) to attempt recovering a flow again if a previous attempt failed with the ERROR_NO_FLOW_STATE error code.
+In such cases, the connection SHOULD be aborted with the ERROR_TOO_MANY_RECOVER_ATTEMPTS error code.
 
 ** Drop the Flow
 
@@ -938,13 +997,15 @@ If the session state is discarded, the flow states in the session are also disca
 
 Error code used in the QUIC CONNECTION_CLOSE Frame
 
-   |-------------------+------+--------------+--------------------------------------------------------|
-   | Error Name        | Code | Reuse MQTT 5 | Meaning                                                |
-   | NO_ERROR          | 0x00 |              |                                                        |
-   | ERROR_TLS_ERROR   | 0xB1 |              | TLS handshake success but extra validations are failed |
-   | ERROR_UNSPECIFIED | 0xB2 |              | Default UNSPECIFIED error                              |
-   |                   |      |              |                                                        |
-   |-------------------+------+--------------+--------------------------------------------------------|
+   |---------------------------------+------+--------------+--------------------------------------------------------|
+   | Error Name                      | Code | Reuse MQTT 5 | Meaning                                                |
+   | NO_ERROR                        | 0x00 |              |                                                        |
+   | ERROR_TLS_ERROR                 | 0xB1 |              | TLS handshake success but extra validations are failed |
+   | ERROR_UNSPECIFIED               | 0xB2 |              | Default UNSPECIFIED error.                             |
+   | ERROR_TOO_MANY_RECOVER_ATTEMPTS | 0xB3 |              | Too many attemps to recover a none existing flow.      |
+   | ERROR_PROTOCOL_L0               | 0xB4 |              | Protocol Error Zero 0                                  |
+   |                                 |      |              |                                                        |
+   |---------------------------------+------+--------------+--------------------------------------------------------|
 
 ** Application Error Code on Stream Flow
 
@@ -967,6 +1028,7 @@ Error code used in the QUIC CONNECTION_CLOSE Frame
    | ERROR_FLOW_REFUSED            | 0xBE |        | N             | FLOW is refused                                                                     |
    | ERROR_DISCARD_STATE           | 0xBF |        | Y             | The entire FLOW state is discarded (includes SUBSCRIPTION, QoS Delivery states ...) |
    | ERROR_SERVER_PUSH_NOT_WELCOME | 0XC0 |        | Y             | Server Push flow is not welcomed by the client                                      |
+   | ERROR_NO_FLOW_STATE           | 0xC1 |        | Y             | Could not recover the flow with the flow state                                      |
    |                               |      |        |               |                                                                                     |
    |-------------------------------+------+--------+---------------+-------------------------------------------------------------------------------------|
 
