@@ -374,7 +374,7 @@ Notes:
 
 QUIC connections are established as described in [RFC9000].
 
-0-RTT support is optional
+0-RTT support is optional.
 
 ** Connection Keepalive
 
@@ -625,7 +625,7 @@ MQTT-next uses defined (IANA) flow types to distinguish from the other protocols
 
 The flow header is the first few bytes used by both endpoints to identify the flow and gather information for using the flow.
 
-NOTE, the 'Variable-Length Integer Encoding' (i) in the flow header is defined in RFC 9000 and not the "Variable Byte Integer" in the MQTT specification.
+@NOTE, the 'Variable-Length Integer Encoding' (i) in the flow header is defined in RFC 9000 and not the "Variable Byte Integer" in the MQTT specification.
 
 Stream Header Formats:
 
@@ -718,10 +718,11 @@ Both client and server can initiate new flows.
 The flow will survive disconnection or reconnection if the session and the flow are not expired (set by flow_expire_interval)
 
 The acceptor which is the peer of the flow initiator must check if the flow header is valided and supported. If not, the stream
-recv should be aborted with with the error code defined in *Error Code*.
+recv should be aborted with the error code defined in *Error Code*.
 
-Either side of the flow could abort the flow with ERROR_FLOW_OPEN_IDLE if the flow is idle after started this also including the scenario
-that receiving timout of a complete stream header.
+Flow Termination on Inactivity,
+Both the client and server are able to unilaterally abort a flow using the ERROR_FLOW_OPEN_IDLE code if the flow remains idle after it has been started.
+This includes the situation where a timeout occurs upon receiving a complete stream header without subsequent data within the designated timeframe.
 
 Mismatch of initiator and flow type in control flow is protocol error level 0.
 
@@ -737,7 +738,7 @@ If abort is triggered, it MUST terminate with abortive shutdown.
 
 Flow state MUST be removed from session state if gracefully terminated.
 
-Flow state MUST NOT be removed from session state if it is aborted if the flow hasn't expired.
+Flow state MUST NOT be removed from session state if it is aborted if the flow hasn't expired. @TODO what if app crash?
 
 In the case of aborted termination, the sender MUST assume that the messages it has sent will be unhandled or handled, and for the receiver it is up to the implementation to decide how to deal with the received but unhandled data.
 
@@ -979,4 +980,6 @@ This applies to the datagram as well.
 
   1. To resume a multistream session after fallback to TCP based transport needs extra work to reuse TCP connection
      for all the streams.
-      
+
+* IANA Considerations
+@TBD
