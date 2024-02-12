@@ -1040,8 +1040,31 @@ This applies to the datagram as well.
 
 * Limitations
 
-  1. To resume a multistream session after fallback to TCP based transport needs extra work to reuse TCP connection
-     for all the streams.
+1. To resume a multistream session after fallback to TCP based transport needs extra work in this spec to reuse TCP connection for all the streams.
+
 
 * IANA Considerations
 @TBD
+
+* Opportunities
+
+** Enable MQTT Stream publish mode.
+
+New mode that MQTT publish a message with undermined payload len.
+
+The len of message payload could exceed the max size of a messages (256MB) defined in MQTT 5.0 protocol.
+
+A MQTT messages with payload len 0 could be used for stream mode which length of the payload is undefined such as
+tail logging of a log file. This also needs to assign a specific stream type. The flow data would look like:
+#+begin_src
+MQTT_stream {
+  stream_header,
+  mqtt_pub_fixed_header,
+  mqtt_pub_var_headers,
+  payload_stream ...
+}
+#+end_src
+
+When the length of stream is determined such as producer of the stream get EOF(end of file),
+the flow owner should use graceful shutdown to terminate the sending, with determined length of data.
+And the receiver MUST ack the message for QoS >0 before gracefully shutdown the stream.
