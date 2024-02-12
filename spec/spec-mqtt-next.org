@@ -745,10 +745,6 @@ Predefined Optional header here:
 
 Both client and server can initiate new flows.
 
-The flow will survive disconnection or reconnection if the session and the flow are not expired (set by flow_expire_interval > 0).
-
-The flow will also survives abortion if flow_expire_interval > 0.
-
 The acceptor which is the peer of the flow initiator must check if the flow header is valided and supported. If not, the stream
 recv should be aborted with the error code defined in *Error Code*.
 
@@ -760,14 +756,18 @@ Mismatch of initiator and flow type in control flow is protocol error level 0.
 
 Mismatch of initiator and flow type in data flow is protocol error level 1.
 
+** Send/Recv over the flow
+@TODO
 
 ** Flow expiration
 
-Flow expiration means discard the flow state.
+MQTT Flow offers resilience to both QUIC connection interruptions and QUIC stream abortion.
 
-The flow state SHOULD NOT expire when it is not in shutdown states.
+Flows can survive disconnections as long as session and the flow are not expired.
 
-The flow state MUST expire after flow graceful shutdown.
+When the flow is expired, the flow state MUST be removed from session state.
+
+When the session is expired, all flow states associated with it will be expired.
 
 The `flow_expire_interval` in the stream header defines for how long should the flow expire after abortive shutdown.
 
@@ -816,31 +816,40 @@ Abortive termination is triggered when at least one of the following events occu
 
 Note that for a bidi stream, the endpoint is both the sender and the receiver.
 
+** Flow takeover
 
-** Refresh flow stream
+Flow takeover is when the old QUIC stream in use by the flow is replaced with new QUIC stream in the middle of data transmission.
 
-Flow stream refresh can only be triggered by the flow owner.
+Flow takeover can only be triggered by the flow owner and takeover is done with the same Flow ID.
 
-This is used to interrupt the data transfer in progress by the application.
+The new stream MUST have high order stream id of the same type. Greater QUIC Stream ID of the same QUIC stream type always takes precedence.
 
-For example, to discard the obsolete data being transferred, to update the persistent policy defined by setting new flow flags, or to recover from the application error, or to discard the flow state at the peer.
+Flow takeover is used to interrupt the data transfer in progress by the application.
 
-Flow takeover is done by refreshing the QUIC stream in use, where the new stream ID MUST be greater than the old stream ID. Greater streamid of the same QUIC stream type always takes precedence.
+For example:
 
-The flow refresh has the side effect that the owner aborts both sending and receiving of the old flow.
-and the peer MUST unconditionally abort its send/recv.
+- To discard the obsolete data being transferred
+- To update the persistent policy defined by setting new flow flags
+- To recover from the application error
+- @TODO could we define graceful takeover without data loose?
 
-The incomplete MQTT packet in the buffer at both ends MUST be discarded.
+The flow takeover could be triggered unintentionally due to the nature of parallelism of QUIC streams where the message of restart the
+flow with new stream arrives before the abortion of the old QUIC stream.
 
-The stream owner must ensure that it has sufficient flow control credits before starting the takeover process.
+By nature of the QUIC protocol, the stream owner MUST assmue the data sent before the takeover MAY or MAY NOT be handled by peer.
 
-As each endpoint manages it's own flow id spaces, the takeover could change the persistent flag of the flow.
+The flow takeover has the side effect that the owner aborts both sending and receiving, and the acceptor of the stream
+MUST unconditionally abort its send/recv on the old stream.
+
+The incomplete MQTT packet in the buffer at both ends MUST be discarded that is the data cannot survive from the old stream to the new stream.
+
+The stream owner MUST ensure that it has sufficient flow control credits before starting the takeover process.
 
 ** Flow Recover
 
-Flow recover means that a previously aborted flow identified by Flow ID is restarted with their preserved state.
+Flow Recover means that a previously aborted flow identified by Flow ID is restarted from their preserved state.
 
-Flow recover happens in two cases:
+There are two cases where flow recovery happens:
 
 1. In cases where a flow was deliberately aborted for any reason, the owner of the flow can initiate
    a recovery request to revive it with its previous state.
@@ -848,29 +857,64 @@ Flow recover happens in two cases:
 2. When a connection is interrupted and later re-established, flows that were active before the disconnection
    can be recovered if their state is preserved.
 
-Flow recover success only when both endpoints holds the preserved state.
+Flow recover success only when both endpoints hold the preserved state.
 
 The owner of the flow is responsible for restarting the flow with the `clean` bit in Flow flag MUST set to False to recover the flow.
 
-If the receiving side cannot successfully recover the flow state for any reason AND the `abort_if_no_state` bit is set,
+If the receiver cannot successfully recover the flow state for any reason AND the `abort_if_no_state` bit is set,
 it MUST abort the flow with the ERROR_NO_FLOW_STATE error code.
 
-If the receiving side cannot successfully recover the flow state for any reason AND the `abort_if_no_state` bit is unset,
+If the receiver cannot successfully recover the flow state for any reason AND the `abort_if_no_state` bit is unset,
 it MUST NOT abort the flow with the ERROR_NO_FLOW_STATE error code. It is considered a protocol error (level 0) if receiver
 does not follow this and the connection should be abored with ERROR_PROTOCOL_L0.
 
 Repeated recovery attempts:
 
-It is considered a protocol error (level 0) to attempt recovering a flow again if a previous attempt failed with the ERROR_NO_FLOW_STATE error code.
-In such cases, the connection SHOULD be aborted with the ERROR_TOO_MANY_RECOVER_ATTEMPTS error code.
+It is considered a protocol error (level 0) to attempt recovering a flow again if a previous attempt failed
+with the ERROR_NO_FLOW_STATE error code. In such cases, the connection SHOULD be aborted with the
+ERROR_TOO_MANY_RECOVER_ATTEMPTS error code.
 
-** Drop the Flow
+** Discard the Flow state at peer
 
-If the flow owner wishes to discard the flow state at the peer, he can do so by setting the flow
-with the flow flag clean_start set, all persistent flags unset and a STREAM FIN flag set.
+Alternatively, instead of recovering the flow after abort, the flow owner could send a QUIC_STREAM_FRAME with the FIN flag set, clean_start set,
+and persistent flag cleared in the stream header to discard the flow state at the remote endpoint.
 
-This could be done by restarting a closed flow or by refreshing the stream on an existing flow.
+The stream acceptor MUST discard the flow state and complete the stream graceful shutdown by sending a QUIC_STREAM_FRAME
+with the FIN flag set and zero-length data.
 
+** Flow state machine
+
+|--------------------------+--------------------------+----------------------|
+| Sending Part             | Receiving Part           | Composite State      |
+|--------------------------+--------------------------+----------------------|
+| No Stream / Ready        | No Stream / Recv (*1)    | idle                 |
+| Ready / Send / Data Sent | Recv / Size Known        | open                 |
+| Ready / Send / Data Sent | Data Recvd / Data Read   | half-closed (remote) |
+| Ready / Send / Data Sent | Reset Recvd / Reset Read | half-closed (remote) |
+| Data Recvd               | Recv / Size Known        | half-closed (local)  |
+| Reset Sent / Reset Recvd | Recv / Size Known        | half-closed (local)  |
+| Reset Sent / Reset Recvd | Data Recvd / Data Read   | closed (aborted)     |
+| Reset Sent / Reset Recvd | Reset Recvd / Reset Read | closed (aborted)     |
+| Data Recvd               | Data Recvd / Data Read   | closed (graceful)    |
+| Data Recvd               | Reset Recvd / Reset Read | closed (aborted)     |
+|--------------------------+--------------------------+----------------------|
+
+
+#+begin_src plantuml :file flow-fsm.png
+@startuml
+Title Flow State machine
+
+[*] --> idle
+idle --> open
+open --> local_hc
+open --> remote_hc
+local_hc --> closed
+remote_hc --> closed
+@endump
+#+end_src
+
+#+RESULTS:
+[[file:flow-fsm.png]]
 
 ** MQTT Packet and Flow mappings
 
@@ -906,7 +950,6 @@ This could be done by restarting a closed flow or by refreshing the stream on an
 | User-Defined flow       (0x14) | bidi/unidi | Client/Server | Other protocol data           |   |
 |--------------------------------+------------+---------------+-------------------------------+---|
 
-
 Note, type `0x1f * N + 0x21` are reserved
 Note, control packet and data packet are redefined here
 
@@ -929,14 +972,14 @@ Each endpoint of a flow maintains its own flow state as a minimum persistence:
 *** Client side
 
 - Delivery state of QoS >0 messages sent.
-- topic alias
+- Topic alias
 
 *** Server side
 
 - Subscriptions and subscription ID
 - Topic alias
-- Delivery state of QoS >0 messages.
-- buffered QoS >0 messages, QoS 0 optional.
+- Delivery state of QoS > 0 messages.
+- Buffered QoS >0 messages, QoS 0 optional.
 - Flow Expiry Time
 
 * Session
