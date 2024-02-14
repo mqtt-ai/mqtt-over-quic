@@ -376,6 +376,8 @@ QUIC connections are established as described in [RFC9000].
 
 0-RTT support is optional.
 
+Client SHOULD NOT create more than one QUIC connection to a given IP and UDP port.
+
 ** Connection Keepalive
 
 Connection keepalive SHOULD be performed on the QUIC transport. Both server and client maintain keepalive traffic on their own.
@@ -757,7 +759,19 @@ Mismatch of initiator and flow type in control flow is protocol error level 0.
 Mismatch of initiator and flow type in data flow is protocol error level 1.
 
 ** Send/Recv over the flow
-@TODO
+
+A bidi flow has two endpoints and each endpoint has one sender and one receiver.
+
+The bytes are received as the same order as when they are sent by sender in the same flow and this is ensured by QUIC protocol.
+
+Sender may fail to send over the flow when peer aborts the receiving.
+
+Receiver may fail to receive from the flow when peer aborts the sending.
+
+When the abortion happens, the application MUST assume the data may or may not being handled properly at peer.
+
+@NOTE, Some QUIC stacks may deliver bytes out of order to the application. However, these bytes will come with offsets that the application can use to recover the correct order.
+to recover the order.
 
 ** Flow expiration
 
@@ -884,37 +898,109 @@ with the FIN flag set and zero-length data.
 
 ** Flow state machine
 
-|--------------------------+--------------------------+----------------------|
-| Sending Part             | Receiving Part           | Composite State      |
-|--------------------------+--------------------------+----------------------|
-| No Stream / Ready        | No Stream / Recv (*1)    | idle                 |
-| Ready / Send / Data Sent | Recv / Size Known        | open                 |
-| Ready / Send / Data Sent | Data Recvd / Data Read   | half-closed (remote) |
-| Ready / Send / Data Sent | Reset Recvd / Reset Read | half-closed (remote) |
-| Data Recvd               | Recv / Size Known        | half-closed (local)  |
-| Reset Sent / Reset Recvd | Recv / Size Known        | half-closed (local)  |
-| Reset Sent / Reset Recvd | Data Recvd / Data Read   | closed (aborted)     |
-| Reset Sent / Reset Recvd | Reset Recvd / Reset Read | closed (aborted)     |
-| Data Recvd               | Data Recvd / Data Read   | closed (graceful)    |
-| Data Recvd               | Reset Recvd / Reset Read | closed (aborted)     |
-|--------------------------+--------------------------+----------------------|
+Each endpoint has one sender and one receiver.
+
+Sender state machine,  refer to 3.1 in RFC9000
+Receiver state machine, refer to 3.2 in RFC9000
+
+Endpoint composed state:
+
+|--------------------------+--------------------------+--------------------------------|
+| Sending Part             | Receiving Part           | Composite State                |
+|--------------------------+--------------------------+--------------------------------|
+| No Stream / Ready        | No Stream / Recv (*1)    | idle                           |
+| Ready / Send / Data Sent | Recv / Size Known        | open                           |
+| Ready / Send / Data Sent | Data Recvd / Data Read   | half-closed (remote, graceful) |
+| Ready / Send / Data Sent | Reset Recvd / Reset Read | half-closed (remote)           |
+| Data Recvd               | Recv / Size Known        | half-closed (local, graceful)  |
+| Reset Sent / Reset Recvd | Recv / Size Known        | half-closed (local)            |
+| Reset Sent / Reset Recvd | Data Recvd / Data Read   | closed (aborted)               |
+| Reset Sent / Reset Recvd | Reset Recvd / Reset Read | closed (aborted)               |
+| Data Recvd               | Data Recvd / Data Read   | closed (graceful)              |
+| Data Recvd               | Reset Recvd / Reset Read | closed (aborted)               |
+|--------------------------+--------------------------+--------------------------------|
 
 
 #+begin_src plantuml :file flow-fsm.png
 @startuml
 Title Flow State machine
-
 [*] --> idle
-idle --> open
-open --> local_hc
-open --> remote_hc
-local_hc --> closed
-remote_hc --> closed
+idle --> open: send/recv
+open --> local_half_closed: local_close
+open --> remote_half_closed: remote_close
+local_half_closed --> closed: remote_close
+remote_half_closed --> closed: local_close
 @endump
 #+end_src
 
 #+RESULTS:
 [[file:flow-fsm.png]]
+
+** Seq chart of graceful shutdown
+#+begin_src plantuml :file flow-fsm-graceful.png
+@startuml
+Title Flow graceful shutdown
+
+e1-->e2: shutdown send
+note over e1
+Wait for all acked
+end note
+note over e2
+size known
+finish receiving
+end note
+e1 -> e2: data
+e2 -> e1: data ack
+e1 -> e2: data
+e2 -> e1: data ack
+note over e2
+receive finished
+end note
+note over e1
+send finished
+end note
+hnote over e2
+receiver
+closed
+end note
+hnote over e1
+sender
+closed
+end note
+==half closed==
+e2-->e1: shutdown send
+note over e2
+Wait for all acked
+end note
+note over e1
+size known
+finish receiving
+end note
+e2 -> e1: data
+e1 -> e2: data ack
+e2 -> e1: data
+e1 -> e2: data ack
+note over e1
+receive finished
+end note
+note over e2
+send finished
+end note
+hnote over e1
+receiver
+closed
+end note
+hnote over e2
+sender
+closed
+end note
+== closed ==
+@endump
+#+end_src
+
+#+RESULTS:
+[[file:flow-fsm-graceful.png]]
+
 
 ** MQTT Packet and Flow mappings
 
