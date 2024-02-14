@@ -1,8 +1,8 @@
-#+title: Spec Mqtt Next
+#+title: Spec MQTT-next
 
 * Abstract
 
-This document defines MQTT-next, a mapping of MQTT to the QUIC transport protocol.
+This document defines `MQTT-next`, a mapping of MQTT to the QUIC transport protocol.
 
 * Definitions
 
@@ -44,7 +44,7 @@ HOLB: head-of-line blocking
 
 peer: remote endpoint
 
-mqtt-next: unversioned MQTT version that supports MQTT over QUIC advance multistream mode.
+MQTT-next: unversioned MQTT version that supports MQTT over QUIC advance multistream mode.
 
 ttl: time to live
 
@@ -124,7 +124,6 @@ Delivery Options: QUIC offers a spectrum of delivery options, including ordered/
 - Denial-of-Service (DoS) Protection:
 
   QUIC incorporates several features to mitigate DoS attacks, such as connection limits, packet pacing, and handshake throttling.
-
 
 ** Pluggable security suite and congestion control
 
@@ -256,8 +255,7 @@ streams.
 
 QUIC streams can be either unidirectional, carrying data only from the
 initiator to receiver, or bidirectional, carrying data in both directions.
-directions.  Streams in the connection can be initiated by either endpoint,
-the client or the server.
+Streams in the connection can be initiated by either endpoint, the client or the server.
 
 There are three modes of operation for QUIC-next, each mode having its own advantages and disadvantages in terms of
 
@@ -295,8 +293,9 @@ Compatible with single stream mode.
       e. Freedom in application data and stream mapping
 
       Disadvantages:
-      a. Persistent stream session is not available on data stream.
-         In this mode there is no stream header, the stream only streams MQTT packets, client and server could not.
+      a. Persistent data stream session is not available on data stream.
+         In this mode there is no stream header, the stream only streams MQTT packets, client and server could not recover
+         the data stream states from disconnection.
 
 ** Advanced multistreams
 
@@ -305,22 +304,22 @@ Extends the simple multistream mode with the following features:
 1. Can coexist with another protocol (http/3 or private protocol) on the same connection.
 2. Support unreliable delivery.
 3. Defines control message cancellation procedure.
-4. Server initiated stream for predefined subscriptions.
+4. Optionally use server initiated stream for predefined subscriptions.
 5. Abstract 'flow' concept that could be resumed after reconnect.
-6. Q-PACK support for message header compression, greatly reducing message size.
+6. Q-PACK support for message header compression, greatly reducing message size. @TODO
 7. Defines robustness flow procedure.
 8. Defines protocol discovery and upgrade/downgrade procedure.
 
 Advantages:
 
 - MQTT 5.0 feature complete
-- Flexible packet delivery reliable/unreliable, ordered, out-of-order, send/recv aborts.
-- Flexible control stream discovery
+- Flexible packet delivery reliable/unreliable, ordered, out-of-order, send/recv abortions.
+- Flexible control stream discovery.
 - Flexible connection management.
 
 Disadvantages:
 
-- Extends MQTT 5.0 session data, requires changes to MQTT session layer
+- Extends MQTT 5.0 session data, requires changes to MQTT session layer.
 - Fallback to TCP/TLS becomes a completely different protocol.
 
 ** Work mode feature summary
@@ -331,7 +330,7 @@ Disadvantages:
 | MQTT 3.1                     | Y             | Y                  | N                    |       |
 | MQTT 5.0                     | Y             | Y (Partly)         | N                    |       |
 | MQTT-next                    | N             | N                  | Y                    |       |
-| TLS alpn                     | mqtt          | mqtt               | mqtt-next            |       |
+| TLS alpn                     | mqtt          | mqtt               | MQTT-next            |       |
 |------------------------------+---------------+--------------------+----------------------+-------|
 | Connection features          |               |                    |                      |       |
 |------------------------------+---------------+--------------------+----------------------+-------|
@@ -404,10 +403,9 @@ Client:
 
 There is no graceful shutdown defined by the QUIC protocol.
 
-In mqtt-next, if either endpoint wishes to gracefully disconnect, it MUST send MQTT.DISCONNECT via the control stream,
-
+In MQTT-next, if either endpoint wishes to gracefully disconnect,
 it MUST send MQTT.DISCONNECT over the control stream with a reason code explicitly set in the Disconnect Reason Code.
-Then it MUST terminate the control flow.
+Then it MUST terminate the control flow gracefully.
 
 Any MQTT packets received before the control stream is closed SHOULD be properly handled.
 
@@ -415,7 +413,7 @@ After closing the control stream, an endpoint MUST shutdown the connection. Eith
 
 MQTT defines graceful shutdown with the stream shutdown reason code: NO_ERROR.
 
-If MQTT coexists with http/3, the http3/ graceful shutdown procedure must also be followed.
+If MQTT coexists with http/3, the http/3 graceful shutdown procedure must also be followed.
 
 ***** Graceful shutdown initiated by the client:
 
@@ -429,8 +427,7 @@ Client MUST discard all MQTT packets received from the Broker after sending the 
 If the client receives a QUIC CONNECTION_SHUTDOWN FRAME before completing the control flow graceful shutdown procedure
 then the graceful shutdown procedure will fail.
 
-Client MAY timeout waiting for a control flow graceful shutdown to complete, it MAY start an immediate connection shutdown procedure with code ERROR_DISCONNECT_TIMEOUT.
-Then the Connection graceful shutdown is failed.
+Client MAY timeout waiting for a control flow graceful shutdown to complete, it MAY start an immediate connection shutdown procedure with code ERROR_DISCONNECT_TIMEOUT, then the Connection graceful shutdown is failed.
 
 If the server receives MQTT.DISCONNECT via control flow,
 it MAY attempt to gracefully shut down other flows by processing all received MQTT packets
@@ -445,7 +442,6 @@ Server MUST first send MQTT.DISCONNECT via control flow
    AND then MUST wait for the control flow graceful shutdown to complete
    AND server MAY initiate the QUIC protocol's immediate connection termination procedure OR silently terminate the connection locally without notifying the peer.
 
-
 *** Abnormal connection shutdown
 
 Abnormal connecion shutdown is the shutdown of a connection that is not graceful.
@@ -458,12 +454,11 @@ The following conditions can trigger abnormal connection shutdown.
 
 - Immediate connection shutdown triggered locally by the application.
 
-- Immediate shutdown triggered remotely without completing the control flow Graceful shutdown
+- Immediate shutdown triggered remotely without completing the control flow Graceful Shutdown
 
 - Idle connection.
 
 - Other unrecoverable transport errors such as device failure, OS failure, unhandled network changes.
-
 
 *** Sending unreliable datagrams over the connection
 
@@ -481,45 +476,25 @@ MQTT packets can be directly encoded within the datagram payload for efficient t
 
 MQTT packet can be encoded in the payload of unreliable datagram.
 
-
-Unreliable Delivery Characteristics:
-
-1. Unordered Delivery:
-
-   Datagram frames might arrive out of order, unlike the ordered nature of standard QUIC streams.
-   This necessitates application-level handling of message sequence if order matters.
-
-2. Potential Loss:
-
-   Datagram frames can be lost without retransmission attempts.
-   Applications that require guaranteed delivery should continue using reliable QUIC streams alongside datagrams.
-
-3. Size Limitations:
-
-   Like any network packet, datagrams have a size limit (MTU).
-
-
-
 Messages with QoS values greater than or equal to 0 MAY be sent as unreliable datagrams.
 
-However, While offering flexibility using this mechanism implies relaxing the QoS guarantees associated with that message.
+While offering flexibility using this mechanism implies relaxing the QoS guarantees associated with that message.
 
 - Sender Responsibilities:
 
   The unreliable datagram is ACK-eliciting, the sender application MAY know if the datagram is received, lost or possibly lost,
-and the application may choose implement appropriate loss detection and recovery mechanisms.
+and the application MAY choose implement appropriate loss detection and recovery mechanisms.
 
 - Receiver Expectations:
 
 Be prepared to receive datagrams out of order and potentially duplicated.
 Implement mechanisms to handle these eventualities, such as deduplication based on unique identifiers or application-specific context.
 
-
 Also the unreliable datagram may not be sent when the connection is alive, common Failure Scenarios:
 
 - Unsupported Feature:
 
-If the peer does not support unreliable datagrams, sending attempts will fail with an appropriate error indication.
+  If the peer does not support unreliable datagrams, sending attempts will fail with an appropriate error indication.
 Applications should handle this scenario gracefully and switch to alternative communication channels, such as stream-based flows.
 
 - Flow Control Limitations:
@@ -529,10 +504,10 @@ Applications should handle this scenario gracefully and switch to alternative co
 
 - MTU Size Constraints:
   If the datagram size exceeds the Maximum Transmission Unit (MTU) of the path, sending will fail.
-  Applications can address this by either fragmenting the datagram into smaller segments that comply with the MTU or exploring alternative
+  Applications can address this by either fragmenting application payload into smaller segments that comply with the MTU or exploring alternative
   channels that can handle larger payloads without fragmentation overhead.
 
-mqtt-next defines three types of datagram payloads
+MQTT-next defines three types of datagram payloads
 
 1. Non-MQTT control packet datagram
 
@@ -550,7 +525,7 @@ mqtt-next defines three types of datagram payloads
 
 *** Connection downgrade
 
-If the QUIC handshake fails or timed out, the client MUST downgrade the protocol to reconnect to the TCP/TLS endpoint.
+If the QUIC handshake fails or timed out, the client SHOULD downgrade the protocol to reconnect to the TCP/TLS endpoint.
 
 The client SHOULD NOT downgrade from QUIC to plain-text TCP.
 
@@ -565,7 +540,7 @@ precedence is given to the latter connection established, the latter connection 
 
 * MQTT Flows
 
-The term =flow= is used in mqtt-next to distinguish the term =stream= in the QUIC protocol.
+The term =flow= is used in MQTT-next to distinguish the term =stream= in the QUIC protocol.
 
 @NOTE
 The stream id in QUIC protocol isn't transparent to the application, as stated in RFC9000:
@@ -591,28 +566,29 @@ Application operates flows:
 - Recover aborted flows with either a clean state or preserved state.
 
 - Shutdown flows gracefully
+
   Terminate flows in an orderly manner.
 
 - Abort the flow
+
   Immediately discontinue communication on a flow which could be
   abort sending, abort receiving or abort both sending and receiving.
 
 - Refresh the flow
-  replace the stream of the flow with a new stream.
+
+  Replace the stream of the flow with a new stream.
 
 - Limit the number of flows.
 
 - Flow control each flow in bytes.
 
-The maximum number of flows is limited by the connection flow control per implementation.
+  The maximum number of flows is limited by the connection flow control per implementation.
 
 ** Flow and stream mapping
 
   A flow can use one QUIC bidi stream.
 
   A flow can use one QUIC unidi stream or [TBD] a pair of QUIC unidi streams.
-
-  Application messages are sent across the flow in an orderly and reliable manner.
 
 ** Flow ownership
 
@@ -642,6 +618,8 @@ MQTT-next uses defined (see IANA) flow types to distinguish from the other proto
 The flow header is the first few bytes used by both endpoints to identify the flow and gather information for using the flow.
 
 @NOTE, the 'Variable-Length Integer Encoding' (i) in the flow header is defined in RFC 9000 and not the "Variable Byte Integer" in the MQTT specification.
+
+@TODO, maybe simplify it by reusing `MQTT.CONNECT`
 
 Stream Header Formats:
 
@@ -802,11 +780,11 @@ In the case of aborted termination, the sender MUST assume that the messages it 
 
 *** Flow graceful termination.
 
-The flow owner must trigger the graceful shutdown of the flow by sending a QUIC STREAM FRAME with FIN flag.
+++The flow owner++ Either endpoint can trigger the graceful shutdown of the flow by sending a QUIC STREAM FRAME with FIN flag.
 
 The flow owner must finish sending a complete MQTT packet before starting the graceful shutdown procedure.
 
-It is protocol error level 0 if the graceful shutdown of the flow is not initiated by the flow owner.
+++It is protocol error level 0 if the graceful shutdown of the flow is not initiated by the flow owner++
 
 It is protocol error level 2 for data flow and protocol error level 0 for control flow if the sender terminates the flow with an incomplete MQTT packet.
  The recipient MUST reset the flow with APEC: ERROR_IMCOMPLETE_PACKET. (When FIN is set the recv size is known).
@@ -814,7 +792,6 @@ It is protocol error level 2 for data flow and protocol error level 0 for contro
 The graceful flow shutdown is completed ONLY when the other endpoint also terminates the stream by sending a QUIC STREAM FRAME with FIN flag set.
 
 The receiver SHOULD ensure all received messages are processed before terminating the stream.
-
 
 *** Flow abortive termination.
 
@@ -828,8 +805,6 @@ Abortive termination is triggered when at least one of the following events occu
 4. Receiver receives QUIC RESET_STREAM FRAME from sender.
 5. The connection is closed before the stream is properly terminated.
 
-Note that for a bidi stream, the endpoint is both the sender and the receiver.
-
 ** Flow takeover
 
 Flow takeover is when the old QUIC stream in use by the flow is replaced with new QUIC stream in the middle of data transmission.
@@ -838,12 +813,11 @@ Flow takeover can only be triggered by the flow owner and takeover is done with 
 
 The new stream MUST have high order stream id of the same type. Greater QUIC Stream ID of the same QUIC stream type always takes precedence.
 
-Flow takeover is used to interrupt the data transfer in progress by the application.
-
-For example:
+Flow takeover is used in the following cases
 
 - To discard the obsolete data being transferred
-- To update the persistent policy defined by setting new flow flags
+- To update the stream priority in local stack.
+- To refersh flow props, such as flow expire interval.
 - To recover from the application error
 - @TODO could we define graceful takeover without data loose?
 
@@ -1044,6 +1018,8 @@ Flow could only be recoverd by the same initiator.
 
 ** Flow State
 
+@TODO, here does not even mention the flow props, same as in MQTT 5.
+
 The flow state is associated with the FlowId, the flow state persists from connection and stream close.
 
 The flow state is used to persist the send state of the flow, which includes
@@ -1069,7 +1045,7 @@ Each endpoint of a flow maintains its own flow state as a minimum persistence:
 - Flow Expiry Time
 
 * Session
-
+@TODO, here does not even mention the session props, same as in MQTT 5.
 ** Session State
 
 The existence of the session.
