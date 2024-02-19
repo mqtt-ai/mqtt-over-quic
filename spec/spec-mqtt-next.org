@@ -32,6 +32,10 @@ client flow: flow initiated by the client and client owns it.
 
 server flow: flow initiated by the server and server owns it.
 
+subscriber: client which does subscription with topic-filter.
+
+publisher: client which publish application messages to the server.
+
 datagram: QUIC unreliable datagram
 
 sender: endpoint which can send data over a flow
@@ -47,6 +51,7 @@ peer: remote endpoint
 MQTT-next: unversioned MQTT version that supports MQTT over QUIC advance multistream mode.
 
 ttl: time to live
+
 
 * Notational Conventions
 
@@ -584,6 +589,36 @@ Application operates flows:
 
   The maximum number of flows is limited by the connection flow control per implementation.
 
+** Flow usages
+
+*** Control Flow
+
+ A single Control Flow must be initiated by the client per connection. All session-related information must be exchanged through this flow.
+
+ See [[MQTT Packet and Flow mapping]]
+
+*** Data Flow
+
+ Both client and server can exchange pub/sub application data over the data flow.
+
+ If an MQTT.PUBLISH message needs to be sent for matching subscriptions, it must be sent over the data flow where it is subscribed.
+
+ The subscriber must expect messages for subscriptions from the same flow it subscribed to. Flows are independent, with no shared states between them. Therefore, multiple subscriptions to the same topic in different flows but in the same connection are possible, even with the same subscription ID.
+
+ If an MQTT.PUBLISH message needs to be sent as a publisher, it may be sent over the control flow, an existing data flow, or a new data flow.
+
+ As QoS > 1 messages track delivery states in the Flow State, the MQTT.PUBACK, MQTT.PUBREL, and MQTT.PUBCOMP messages for the same MQTT.PUBLISH message must be exchanged in the same data flow.
+
+ The client may send an MQTT.PINGREQ message to verify the availability of the application service on the server side. The server must respond with an MQTT.PINGRESP message through the same data flow where it received the PINGREQ. (TBD: This API could be negotiated in the flow header)
+
+ The server MAY send predefined subscription data to the client through a dedicated server-initiated data flow.
+
+ If the client's flow control limit does not allow for a dedicated server-initiated flow, the server SHOULD attempt to negotiate with the client for increased flow allowance by sending QUIC.DATA_BLOCKED
+
+ The server MUST not send predefined subscription data through any other client flows until the client grants the requested flow increase. This ensures respect for the client's resource limitations and prevents potential interference with existing client traffic.
+
+ See [[MQTT Packet and Flow mapping]]
+
 ** Flow and stream mapping
 
   A flow can use one QUIC bidi stream.
@@ -977,6 +1012,8 @@ end note
 
 
 ** MQTT Packet and Flow mappings
+
+Message direction follows MQTT 5.0
 
 |-------------+--------------+------------------+------------------+---------------------|
 | MQTT Packet | Control flow | Client Data flow | Server Data Flow | Unreliable Datagram |
