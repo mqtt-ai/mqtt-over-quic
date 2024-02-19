@@ -1,4 +1,5 @@
 #+title: Spec MQTT-next
+ #+OPTIONS: ^:nil
 
 * Abstract
 
@@ -329,6 +330,9 @@ Disadvantages:
 
 ** Work mode feature summary
 
+#+ATTR_LATEX: :scale 0.25
+[[file:three-modes.png]]
+
 |------------------------------+---------------+--------------------+----------------------+-------|
 | Mode                         | Single Stream | Simple Multstreams | Advanced Multstreams | notes |
 |------------------------------+---------------+--------------------+----------------------+-------|
@@ -595,7 +599,7 @@ Application operates flows:
 
  A single Control Flow must be initiated by the client per connection. All session-related information must be exchanged through this flow.
 
- See [[MQTT Packet and Flow mapping]]
+ See [[MQTT Packet and Flow mappings]]
 
 *** Data Flow
 
@@ -617,7 +621,7 @@ Application operates flows:
 
  The server MUST not send predefined subscription data through any other client flows until the client grants the requested flow increase. This ensures respect for the client's resource limitations and prevents potential interference with existing client traffic.
 
- See [[MQTT Packet and Flow mapping]]
+ See [[MQTT Packet and Flow mappings]]
 
 ** Flow and stream mapping
 
@@ -942,6 +946,7 @@ remote_half_closed --> closed: local_close
 @endump
 #+end_src
 
+#+ATTR_LATEX: :scale 0.5
 #+RESULTS:
 [[file:flow-fsm.png]]
 
@@ -1007,6 +1012,7 @@ end note
 @endump
 #+end_src
 
+#+ATTR_LATEX: :scale 0.5
 #+RESULTS:
 [[file:flow-fsm-graceful.png]]
 
