@@ -1,7 +1,8 @@
 #+title: Spec MQTT-next
  #+OPTIONS: ^:nil
+ #+OPTIONS: \n:t
  #+LATEX_HEADER: \usepackage[a4paper,text={6.25in,9in}, truedimen]{geometry}
- #+LATEX: \setlength\parindent{0pt}
+ #+LaTeX_HEADER: \usepackage{indentfirst}
 
 * Abstract
 
@@ -11,49 +12,51 @@ This document defines `MQTT-next`, a mapping of MQTT to the QUIC transport proto
 
 The key words "MUST", "MUST NOT", "REQUIRED", "SHALL", "SHALL NOT", "SHOULD", "SHOULD NOT", "RECOMMENDED", "NOT RECOMMENDED", "MAY", and "OPTIONAL" in this document are to be interpreted as described in BCP 14 RFC2119 RFC8174 when, and only when, they appear in all capitals, as shown here.
 
-endpoint: MQTT client or MQTT broker
+
+
+=endpoint=: MQTT client or MQTT broker
  
-connection: A transport-layer connection between two endpoints using QUIC as the transport protocol, defined in RFC9000
+=connection=: A transport-layer connection between two endpoints using QUIC as the transport protocol, defined in RFC9000
 
-stream: QUIC stream defined in RFC9000
+=stream=: QUIC stream defined in RFC9000
 
-session: MQTT session defined in MQTT spec
+=session=: MQTT session defined in MQTT spec
 
-bidi: stream direction, bidirectional
+=bidi=: stream direction, bidirectional
 
-unidi: stream direction, unidirectional
+=unidi=: stream direction, unidirectional
 
-local stream: stream which is initiated locally
+=local stream=: stream which is initiated locally
 
-remote stream: stream which is initiated by remote endpoint.
+=remote stream=: stream which is initiated by remote endpoint.
 
-flow: stream abstraction in MQTT layer, part of MQTT session.
+=flow=: stream abstraction in MQTT layer, part of MQTT session.
 
-flow owner: the endpoint who initiates the stream thus owns it.
+=flow owner=: the endpoint who initiates the stream thus owns it.
 
-client flow: flow initiated by the client and client owns it.
+=client flow=: flow initiated by the client and client owns it.
 
-server flow: flow initiated by the server and server owns it.
+=server flow=: flow initiated by the server and server owns it.
 
-subscriber: client which does subscription with topic-filter.
+=subscriber=: client which does subscription with topic-filter.
 
-publisher: client which publish application messages to the server.
+=publisher=: client which publish application messages to the server.
 
-datagram: QUIC unreliable datagram
+=datagram=: QUIC unreliable datagram
 
-sender: endpoint which can send data over a flow
+=sender=: endpoint which can send data over a flow
 
-receiver: endpoint which can receive data over a flow
+=receiver=: endpoint which can receive data over a flow
 
-MQTT packet(s): MQTT control packets defined in MQTT protocol.
+=MQTT packet(s)=: MQTT control packets defined in MQTT protocol.
 
-HOLB: head-of-line blocking
+=HOLB=: head-of-line blocking
 
-peer: remote endpoint
+=peer=: remote endpoint
 
-MQTT-next: unversioned MQTT version that supports MQTT over QUIC advance multistream mode.
+=MQTT-next=: unversioned MQTT version that supports MQTT over QUIC advance multistream mode.
 
-ttl: time to live
+=ttl=: time to live
 
 
 * Notational Conventions
