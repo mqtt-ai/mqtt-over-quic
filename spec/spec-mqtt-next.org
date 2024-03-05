@@ -1,5 +1,7 @@
 #+title: Spec MQTT-next
  #+OPTIONS: ^:nil
+ #+LATEX_HEADER: \usepackage[a4paper,text={6.25in,9in}, truedimen]{geometry}
+ #+LATEX: \setlength\parindent{0pt}
 
 * Abstract
 
@@ -184,7 +186,7 @@ Congestion control can be tailored to the needs of the application.
 
   QUIC enables MQTT to prioritise traffic from different streams.
 
-  This affects loss recovery behaviour and network congestion.
+  This also affects loss recovery behaviour and network congestion.
 
 - Enhanced security
 
@@ -1219,3 +1221,9 @@ MQTT_stream {
 When the length of stream is determined such as producer of the stream get EOF(end of file),
 the flow owner should use graceful shutdown to terminate the sending, with determined length of data.
 And the receiver MUST ack the message for QoS >0 before gracefully shutdown the stream.
+
+* Open Questions
+
+1. Another alt. of starting a flow is to send MQTT.connect right after the flow header.
+   So we have very short flow header + normal MQTT.connect message which contains alls the flow specific
+   params such as flow expire interval, max packet size.
