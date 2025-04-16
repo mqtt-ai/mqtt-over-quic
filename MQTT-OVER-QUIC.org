@@ -1,4 +1,4 @@
-#+title: Spec MQTT-next
+#+title: Spec MQTT-Over-QUIC
  #+OPTIONS: ^:nil
  #+OPTIONS: \n:t
  #+LATEX_HEADER: \usepackage[a4paper,text={6.25in,9in}, truedimen]{geometry}
@@ -336,7 +336,7 @@ Disadvantages:
 ** Work mode feature summary
 
 #+ATTR_LATEX: :scale 0.25
-[[file:three-modes.png]]
+[[file:assets/three-modes.png]]
 
 |------------------------------+---------------+--------------------+----------------------+-------|
 | Mode                         | Single Stream | Simple Multstreams | Advanced Multstreams | notes |
@@ -942,7 +942,7 @@ Endpoint composed state:
 |--------------------------+--------------------------+--------------------------------|
 
 
-#+begin_src plantuml :file flow-fsm.png
+#+begin_src plantuml :file assets/flow-fsm.png
 @startuml
 Title Flow State machine
 [*] --> idle
@@ -956,10 +956,10 @@ remote_half_closed --> closed: local_close
 
 #+ATTR_LATEX: :scale 0.5
 #+RESULTS:
-[[file:flow-fsm.png]]
+[[file:assets/flow-fsm.png]]
 
 ** Seq chart of graceful shutdown
-#+begin_src plantuml :file flow-fsm-graceful.png
+#+begin_src plantuml :file assets/flow-fsm-graceful.png
 @startuml
 Title Flow graceful shutdown
 
