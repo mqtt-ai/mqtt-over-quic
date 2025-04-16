@@ -1,1 +1,1 @@
-# spec-mqtt-next
+# mqtt-over-quic
